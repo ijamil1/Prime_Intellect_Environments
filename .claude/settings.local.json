@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/Users/irfanjamil/.local/bin/prime rl:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime lab:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime pods:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime sandbox:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime inference:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime availability:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env init:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env install:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env push:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env pull:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime eval run:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env list:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env info:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env uninstall:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env version:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env action:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime eval list:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime eval push:*)",
+      "Bash(/Users/irfanjamil/.local/bin/prime env status:*)"
+    ]
+  }
+}
