@@ -1,5 +1,6 @@
 import random
 
+import numpy as np
 import verifiers as vf
 from datasets import Dataset
 
@@ -30,6 +31,26 @@ def _hankel_det(seq: list[int], k: int) -> int:
     return _det(matrix)
 
 
+def _has_unit_roots(coeffs: list[int]) -> bool:
+    """Check if the characteristic polynomial has any roots with |root| = 1.
+
+    For integer coefficients, roots on the unit circle are roots of unity
+    (Kronecker's theorem), so the sequence is periodic.
+    """
+    char_poly = [1] + [-c for c in coeffs]
+    roots = np.roots(char_poly)
+    return any(abs(abs(r) - 1) < 1e-6 for r in roots)
+
+
+def _detect_period(seq: list[int]) -> int:
+    """Find smallest period p of seq, or len(seq) if not periodic."""
+    n = len(seq)
+    for p in range(1, n // 2 + 1):
+        if all(seq[i] == seq[i + p] for i in range(n - p)):
+            return p
+    return n
+
+
 SYSTEM_PROMPT = (
     "You are given consecutive terms of a numeric sequence governed by a "
     "linear recurrence relation (each term is a fixed linear combination of "
@@ -58,12 +79,12 @@ def _generate_dataset(
     # Biased coefficient sampling: positives 3x more likely, zero excluded
     positives = [1, 2, 3, 4, 5]
     negatives = [-1, -2, -3, -4, -5]
-    coeff_pool = positives * 3 + negatives
+    coeff_pool = positives + negatives
 
     init_range = range(-4, 5)  # -4 to 4 inclusive
-    max_abs_value = 10_000
+    max_abs_value = 100_000
     max_lookahead = 10
-    num_shown = 2 * max_k + 1  # ensures identifiability for all k <= max_k
+    max_num_shown = 2 * max_k + 1  # show the same count for all k by default
 
     examples: list[dict] = []
     seen: set[tuple] = set()
@@ -80,9 +101,9 @@ def _generate_dataset(
 
         start_idx = rng.randint(1, max_start_idx)
 
-        # Build sequence long enough for max forward lookahead
+        # Build sequence long enough for max shown + max forward lookahead
         offset = start_idx - 1
-        total_needed = offset + num_shown + max_lookahead
+        total_needed = offset + max_num_shown + max_lookahead
         seq = list(inits)
         overflow = False
         for _ in range(total_needed - k):
@@ -95,11 +116,24 @@ def _generate_dataset(
         if overflow or len(seq) < total_needed:
             continue
 
-        shown = seq[offset : offset + num_shown]
+        full_shown = seq[offset : offset + max_num_shown]
 
         # Identifiability: k x k Hankel determinant must be non-zero
-        if _hankel_det(shown, k) == 0:
+        if _hankel_det(full_shown, k) == 0:
             continue
+
+        # If characteristic polynomial has roots on the unit circle, the
+        # sequence is periodic.  Cap shown terms to period - 1 so the model
+        # never sees a full cycle repeat.
+        if _has_unit_roots(coeffs):
+            period = _detect_period(full_shown)
+            num_shown = min(max_num_shown, period - 1)
+            if num_shown < 2 * k + 1:
+                continue  # period too short to show enough terms
+            shown = full_shown[:num_shown]
+        else:
+            num_shown = max_num_shown
+            shown = full_shown
 
         # Valid target positions (1-indexed): before and after the shown window
         first_shown = start_idx
