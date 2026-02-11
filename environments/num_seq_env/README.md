@@ -54,7 +54,7 @@ prime eval run num-seq-env -a '{"num_examples": 100, "seed": 123, "min_k": 2, "m
 
 | Model | Accuracy | Details |
 | ----- | -------- | ------- |
-| `gpt-4.1-mini` (default) | 69.2% | `prime eval run num-seq-env` with no CLI overrides; num_examples (250) and rollouts_per_example (1) determined by the environment's `pyproject.toml` |
+| `gpt-4.1-mini` (default) | 59.2% | `prime eval run num-seq-env` with no CLI overrides; num_examples (250) and rollouts_per_example (1) determined by the environment's `pyproject.toml` and using default env args |
 
 ### Metrics
 
