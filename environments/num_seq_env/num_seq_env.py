@@ -18,53 +18,67 @@ SYSTEM_PROMPT = (
 )
 
 
-def _generate_dataset(num_examples: int = 500, seed: int = 42) -> Dataset:
+def _generate_dataset(
+    num_examples: int = 500, seed: int = 42, max_start_idx: int = 24
+) -> Dataset:
     """Generate a dataset of order-2 linear recurrence sequence problems."""
     rng = random.Random(seed)
-    coeff_range = range(-3, 4)  # -3 to 3 inclusive
-    init_range = range(-10, 11)  # -10 to 10 inclusive
-    n_choices = [1, 2, 3]
+
+    # Biased coefficient sampling: positives 3x more likely, zero excluded
+    positives = [1, 2, 3, 4, 5]
+    negatives = [-1, -2, -3, -4, -5]
+    coeff_pool = positives * 3 + negatives
+
+    init_range = range(-4, 5)  # -5 to 5 inclusive
+    n_choices = range(1, 11)
     max_abs_value = 10_000
 
     examples: list[dict] = []
     seen: set[tuple] = set()
 
     while len(examples) < num_examples:
-        c1 = rng.choice(coeff_range)
-        c2 = rng.choice(coeff_range)
-        if c1 == 0 and c2 == 0:
-            continue
+        c1 = rng.choice(coeff_pool)
+        c2 = rng.choice(coeff_pool)
 
         a0 = rng.choice(init_range)
         a1 = rng.choice(init_range)
+        start_idx = rng.randint(1, max_start_idx)
         n = rng.choice(n_choices)
 
         # Deduplicate on the full parameter tuple
-        key = (c1, c2, a0, a1, n)
+        key = (c1, c2, a0, a1, start_idx, n)
         if key in seen:
             continue
         seen.add(key)
 
-        # Build the sequence: 5 shown terms + n extra terms
+        # Build the sequence from initial seeds up to the needed length
+        offset = start_idx - 1
+        total_needed = offset + 5 + n
         seq = [a0, a1]
         overflow = False
-        for _ in range(3 + n):
+        for _ in range(total_needed - 2):
             next_val = c1 * seq[-1] + c2 * seq[-2]
             if abs(next_val) > max_abs_value:
                 overflow = True
                 break
             seq.append(next_val)
 
-        if overflow or len(seq) < 5 + n:
+        if overflow or len(seq) < offset + 5 + n:
             continue
 
-        shown = seq[:5]
-        answer = seq[5 + n - 1]  # the n-th term after the shown 5
+        shown = seq[offset : offset + 5]
+        answer = seq[offset + 5 + n - 1]  # the n-th term after the shown 5
+
+        # Identifiability check: Hankel determinant must be non-zero
+        # so the recurrence coefficients are uniquely determined
+        det = shown[1] ** 2 - shown[2] * shown[0]
+        if det == 0:
+            continue
 
         prompt_text = (
             f"Here are 5 consecutive terms of a sequence:\n"
             f"{shown[0]}, {shown[1]}, {shown[2]}, {shown[3]}, {shown[4]}\n\n"
-            f"What is the next term (term number {n} after the last shown term)?"
+            f"What is the next term in the sequence?"
             if n == 1
             else (
                 f"Here are 5 consecutive terms of a sequence:\n"
