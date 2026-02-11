@@ -1,6 +1,6 @@
 [project]
 name = "num-seq-env"
-description = "Inductive reasoning over numeric sequences governed by order-2 linear recurrence relations"
+description = "Inductive reasoning over numeric sequences governed by variable-order linear recurrence relations"
 tags = ["single-turn", "math", "reasoning"]
 version = "0.1.0"
 requires-python = ">=3.10"
@@ -16,5 +16,5 @@ build-backend = "hatchling.build"
 include = ["num_seq_env.py", "pyproject.toml"] 
 
 [tool.verifiers.eval]
-num_examples = 100
-rollouts_per_example = 3
+num_examples = 250
+rollouts_per_example = 1
