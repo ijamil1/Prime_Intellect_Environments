@@ -1,7 +1,7 @@
 [project]
 name = "prime-intellect-environments"
 version = "0.1.0"
-description = "My Project in which I build RL envs using Prime Intellect\'s verifiers"
+description = "My Project in which I build RL envs using Prime Intellect's verifiers"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
