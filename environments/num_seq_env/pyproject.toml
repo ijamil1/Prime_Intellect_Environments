@@ -16,5 +16,5 @@ build-backend = "hatchling.build"
 include = ["num_seq_env.py", "pyproject.toml"] 
 
 [tool.verifiers.eval]
-num_examples = 50
-rollouts_per_example = 1
+num_examples = 100
+rollouts_per_example = 3

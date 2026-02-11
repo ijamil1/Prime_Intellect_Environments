@@ -32,7 +32,7 @@ The `prime` CLI (at `/Users/irfanjamil/.local/bin/prime`) is Prime Intellect's t
 prime env init <name>                  # creates ./environments/<name>/ with .py, pyproject.toml, README
 prime env init <name> -p /other/dir   # custom output directory
 
-# Install — install an environment into the current Python env (uses uv by default)
+# Install — install an environment into the current Python env (uses uv by default so environment package is installed into .venv)
 prime env install <name>                         # local install from ./environments/
 prime env install <name> -p /path/to/envs        # local install from custom path
 prime env install owner/env-name                 # install from Prime Hub
