@@ -21,7 +21,7 @@ The model sees consecutive terms from a known position in the sequence (e.g., "t
 
 **Generation-time checks.** Each generated sequence is validated before inclusion:
 - **Genuine order check**: the k x k Hankel determinant of the shown terms is verified to be non-zero, confirming the sequence is truly order k which implies it is not expressible by a shorter recurrence and the coefficients are uniquely determinable.
-- **Periodicity handling**: if the characteristic polynomial has roots on the unit circle (roots of unity by Kronecker's theorem), the sequence is periodic. In this case, the shown window is truncated to fewer than one full period so the model cannot exploit repeating patterns. If the period is too short to show enough terms for identifiability (`period - 1 < 2k + 1`), the sequence is rejected.
+- **Periodicity handling**: if the characteristic polynomial has roots on the unit circle (roots of unity by Kronecker's theorem), the sequence is periodic. In this case, the sequence is rejected.
 
 ### Quickstart
 
