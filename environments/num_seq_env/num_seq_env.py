@@ -42,14 +42,6 @@ def _has_unit_roots(coeffs: list[int]) -> bool:
     return any(abs(abs(r) - 1) < 1e-6 for r in roots)
 
 
-def _detect_period(seq: list[int]) -> int:
-    """Find smallest period p of seq, or len(seq) if not periodic."""
-    n = len(seq)
-    for p in range(1, n // 2 + 1):
-        if all(seq[i] == seq[i + p] for i in range(n - p)):
-            return p
-    return n
-
 
 SYSTEM_PROMPT = (
     "You are given consecutive terms of a numeric sequence governed by a "
@@ -122,18 +114,14 @@ def _generate_dataset(
         if _hankel_det(full_shown, k) == 0:
             continue
 
-        # If characteristic polynomial has roots on the unit circle, the
-        # sequence is periodic.  Cap shown terms to period - 1 so the model
-        # never sees a full cycle repeat.
+        # Reject periodic sequences: if the characteristic polynomial has
+        # roots on the unit circle (roots of unity), the sequence is periodic
+        # and the model could exploit repeating patterns.
         if _has_unit_roots(coeffs):
-            period = _detect_period(full_shown)
-            num_shown = min(max_num_shown, period - 1)
-            if num_shown < 2 * k + 1:
-                continue  # period too short to show enough terms
-            shown = full_shown[:num_shown]
-        else:
-            num_shown = max_num_shown
-            shown = full_shown
+            continue
+
+        num_shown = max_num_shown
+        shown = full_shown
 
         # Valid target positions (1-indexed): before and after the shown window
         first_shown = start_idx
