@@ -1,1 +1,0 @@
-{"env_id": "num-seq-env", "env_args": {}, "model": "openai/gpt-4.1-mini", "base_url": "https://api.pinference.ai/api/v1/", "num_examples": 250, "rollouts_per_example": 1, "sampling_args": {"n": 1, "extra_body": {}}, "time_ms": 477950.0560760498, "avg_reward": 0.696, "avg_metrics": {"exact_match": 0.696, "num_turns": 1.0}, "state_columns": []}
