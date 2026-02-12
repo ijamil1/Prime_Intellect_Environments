@@ -19,7 +19,8 @@
       "Bash(/Users/irfanjamil/.local/bin/prime env action:*)",
       "Bash(/Users/irfanjamil/.local/bin/prime eval list:*)",
       "Bash(/Users/irfanjamil/.local/bin/prime eval push:*)",
-      "Bash(/Users/irfanjamil/.local/bin/prime env status:*)"
+      "Bash(/Users/irfanjamil/.local/bin/prime env status:*)",
+      "Bash(prime inference models)"
     ]
   }
 }

@@ -44,11 +44,10 @@ def _has_unit_roots(coeffs: list[int]) -> bool:
 
 
 SYSTEM_PROMPT = (
-    "You are given consecutive terms of a numeric sequence governed by a "
-    "linear recurrence relation (each term is a fixed linear combination of "
-    "some number of preceding terms). You are told which positions in the "
-    "sequence the shown terms occupy. Your task is to determine the "
-    "requested term.\n\n"
+    "You are a mathematician who is given consecutive terms of a numeric sequence governed by a "
+    "linear recurrence relation. You are told which positions in the "
+    "sequence the shown terms occupy. Your task is to calculate the "
+    "value of a requested term in the sequence.\n\n"
     "Think step-by-step about what recurrence relation generates the sequence, "
     "then compute the answer.\n\n"
     "Respond using the following format:\n"
@@ -56,7 +55,6 @@ SYSTEM_PROMPT = (
     "<answer>\n...\n</answer>\n\n"
     "The <answer> tag must contain only the integer value, nothing else."
 )
-
 
 def _generate_dataset(
     num_examples: int = 500,
