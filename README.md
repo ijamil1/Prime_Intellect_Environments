@@ -29,3 +29,4 @@ prime env push -p ./environments/<env_name>
 | Environment | Description |
 | ----------- | ----------- |
 | [num-seq-env](environments/num_seq_env/) | Inductive reasoning over numeric sequences governed by order-2 linear recurrence relations |
+| [CausalExplorerEnv](environments/CausalExplorerEnv/) |  Multi-turn causal reasoning environment based on the Blicket detector paradigm from developmental psychology. Tests an LLM's ability to design experiments, reason causally, and identify hidden causal structure. Inspired by  [Do LLMs Think Like Scientists? Causal Reasoning and Hypothesis Testing in LLMs](https://arxiv.org/pdf/2505.09614) |

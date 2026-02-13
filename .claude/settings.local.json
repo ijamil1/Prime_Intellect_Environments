@@ -20,7 +20,10 @@
       "Bash(/Users/irfanjamil/.local/bin/prime eval list:*)",
       "Bash(/Users/irfanjamil/.local/bin/prime eval push:*)",
       "Bash(/Users/irfanjamil/.local/bin/prime env status:*)",
-      "Bash(prime inference models)"
+      "Bash(prime inference models)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd CausalExplorerEnv: multi-turn causal reasoning environment\n\nImplements the Blicket detector paradigm where an LLM explores a\nsimulated machine to identify which objects activate it under a hidden\ndisjunctive/conjunctive rule. Includes exploration and answer phases,\nper-object accuracy reward, and efficiency/compliance metrics.\n\nAlso updates environments/CLAUDE.md section ordering and fixes\nCLAUDE.md reference from AGENTS.md to CLAUDE.md.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)"
     ]
   }
 }
