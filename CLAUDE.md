@@ -113,7 +113,7 @@ prime whoami                          # show current user
 
 ## Repository Structure
 
-- **`environments/`** — Each subdirectory is a standalone environment package with its own `pyproject.toml`. Must export `load_environment() -> vf.Environment`. See `environments/AGENTS.md` for the full verifiers environment API reference.
+- **`environments/`** — Each subdirectory is a standalone environment package with its own `pyproject.toml`. Must export `load_environment() -> vf.Environment`. See `environments/CLAUDE.md` for the full verifiers environment API reference.
 - **`configs/vf-rl/`** — TOML training configs for `prime train` (model, GPU allocation, batch sizes, env ID).
 - **`configs/endpoints.py`** — `ENDPOINTS` dict mapping shorthand names to model/URL/API-key triples (Prime Inference and OpenAI). API keys are referenced by env var name (`PRIME_API_KEY`, `OPENAI_API_KEY`).
 - **`configs/zero3.yaml`** — DeepSpeed ZeRO-3 accelerate config for distributed training.
