@@ -79,7 +79,7 @@ def parse_predictions(answer_str: str, num_objects: int) -> dict | None:
     return predictions
 
 
-def build_system_prompt(num_objects: int) -> str:
+def build_system_prompt(num_objects: int, max_num_steps: int) -> str:
     """Build the system prompt for the Blicket game."""
     object_list = ", ".join(str(i) for i in range(1, num_objects + 1))
     return f"""\
@@ -89,12 +89,18 @@ You are an intelligent, curious agent. You are playing a game where you are in a
 You can't tell which object is a blicket just by looking at it. \
 Blickets make the machine turn on, following some hidden rule.
 
-Your goal is to determine exactly which objects are Blickets through experimentation.
+More precisely, a blicket is defined as an object whose state is not independent of the
+state of the machine (in other words, the object's state (on/off the machine) distribution and the machine's distribution have nonzero mutual
+information)
+
+Your goal is to determine exactly which objects are Blickets through exploration.
+You have a maximum of {max_num_steps} steps to conduct the exploration phase. You can also exit this phase early if you think you understand the relationship between the
+objects and the machine. After the exploration phase is done, you will be asked which objects are blickets.
 
 RULES:
 - In each action, you can place exactly one object onto the machine or remove exactly one object off the machine.
 - After each action, you will observe which objects are on the machine and whether the machine is ON or OFF.
-- When you have gathered enough information, you can exit the exploration phase to submit your answer.
+- When you have gathered enough information to determine which objects are Blickets, you can exit the exploration phase to submit your answer.
 
 ACTION FORMAT (use XML tags):
 
@@ -117,7 +123,7 @@ During the answer phase, respond with:
 Where True means the object is a Blicket and False means it is not. You must provide a prediction for every object.
 
 STRATEGY: Plan your experiments carefully to gather maximum information efficiently. \
-Think about what each observation tells you about the hidden rule and which objects might be Blickets."""
+Think about what each observation tells you about the hidden rule and which objects might be Blickets. Remember, your ultimate goal is to identify the Blickets"""
 
 
 def build_initial_message(num_objects: int) -> str:
@@ -410,10 +416,10 @@ async def blicket_identification(completion, state, parser) -> float:
 
 
 async def step_budget_utilization(state) -> float:
-    """Metric: 1.0 - (steps_used / max_steps). Higher = fewer steps used."""
+    """Metric: 1.0 - (steps_used / max_steps). Higher = more steps used."""
     steps_used = state.get("step_count", 0)
     max_steps = state.get("max_num_steps", 1)
-    return 1.0 - (steps_used / max_steps)
+    return steps_used / max_steps
 
 
 async def exploration_inefficiency(state) -> float:
@@ -520,7 +526,7 @@ def load_environment(
     rubric.add_metric(hypotheses_eliminated)
 
     # Build system prompt
-    system_prompt = build_system_prompt(num_objects)
+    system_prompt = build_system_prompt(num_objects, max_num_steps)
 
     # max_turns = max_num_steps + 2 (exploration + transition + answer)
     max_turns = max_num_steps + 2
