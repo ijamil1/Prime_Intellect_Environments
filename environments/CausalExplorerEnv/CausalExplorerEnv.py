@@ -1,5 +1,6 @@
 import json
 import re
+from itertools import product
 
 import numpy as np
 import verifiers as vf
@@ -24,6 +25,21 @@ def compute_machine_state(
         return int(active_blickets.any())
     else:  # conjunctive
         return int(active_blickets.all())
+
+
+def is_consistent(
+    object_states: np.ndarray,
+    blickets: np.ndarray,
+    rule_type: str,
+    machine_state: int,
+) -> int:
+    """Check if a blicket assignment is consistent with an observed machine state.
+
+    Returns 1 if compute_machine_state(object_states, blickets, rule_type) equals
+    machine_state, 0 otherwise.
+    """
+    predicted = compute_machine_state(object_states, blickets, rule_type)
+    return 1 if predicted == machine_state else 0
 
 
 def parse_action(action_str: str) -> dict | None:
@@ -67,29 +83,32 @@ def build_system_prompt(num_objects: int) -> str:
     """Build the system prompt for the Blicket game."""
     object_list = ", ".join(str(i) for i in range(1, num_objects + 1))
     return f"""\
-You are interacting with a Blicket-detecting machine with {num_objects} objects: {object_list}.
 
-Some of these objects are "Blickets" that activate the machine according to a hidden rule. \
-Your goal is to determine which objects are Blickets through experimentation.
+You are an intelligent, curious agent. You are playing a game where you are in a room with \
+{num_objects} different objects, and a machine. The objects are labeled as such: {object_list}. Some of these objects are blickets. \
+You can't tell which object is a blicket just by looking at it. \
+Blickets make the machine turn on, following some hidden rule.
+
+Your goal is to determine exactly which objects are Blickets through experimentation.
 
 RULES:
-- You can place or remove exactly one object per step.
+- In each action, you can place exactly one object onto the machine or remove exactly one object off the machine.
 - After each action, you will observe which objects are on the machine and whether the machine is ON or OFF.
 - When you have gathered enough information, you can exit the exploration phase to submit your answer.
 
 ACTION FORMAT (use XML tags):
 
 During exploration, respond with:
-<reasoning>Your reasoning about what to try next...</reasoning>
+<reasoning>Your reasoning about the decision to place an on object on the machine...</reasoning>
 <action>put N on</action>
 or
-<reasoning>Your reasoning...</reasoning>
+<reasoning>Your reasoning to remove an object from the machines...</reasoning>
 <action>put N off</action>
-or
+Where N is an object number in ({object_list}).
+
+To exit the exploration phase and enter the answer phase, respond with: 
 <reasoning>Your reasoning for stopping...</reasoning>
 <action>exit</action>
-
-Where N is an object number ({object_list}).
 
 During the answer phase, respond with:
 <reasoning>Your analysis of which objects are Blickets...</reasoning>
@@ -199,11 +218,27 @@ class BlicketEnv(vf.MultiTurnEnv):
         state["valid_action_count"] = 0
         state["parseable_action_count"] = 0
         state["total_action_count"] = 0
+        state["redundant_action_count"] = 0
+
+        # Initialize hypothesis space: all (blicket_assignment, rule_type) pairs
+        # 2^N blicket assignments × 2 rule types = 2^(N+1) hypotheses
+        state["valid_hypotheses"] = [
+            (bits, rule)
+            for bits in product((0, 1), repeat=self.num_objects)
+            for rule in ("disjunctive", "conjunctive")
+        ]
+        state["hypotheses_eliminated_per_step"] = []
 
         return await super().setup_state(state, **kwargs)
 
     async def env_response(self, messages: vf.Messages, state: vf.State) -> vf.Messages:
-        parsed = self.parser.parse(messages)
+        # Extract the most recent assistant message and parse its XML tags
+        content = ""
+        for msg in reversed(messages):
+            if msg["role"] == "assistant":
+                content = str(msg["content"])
+                break
+        parsed = self.parser.parse(content)
         action_str = parsed.action if parsed.action else ""
 
         # --- Answer phase: agent has submitted predictions ---
@@ -253,7 +288,9 @@ class BlicketEnv(vf.MultiTurnEnv):
             # Unparseable action
             error_msg = (
                 f"Step {state['step_count']}/{self.max_num_steps}: "
-                f"Invalid action format. Use 'put N on', 'put N off', or 'exit'."
+                f"Invalid action format. Expected <action>put N on</action>, "
+                f"<action>put N off</action>, or <action>exit</action>, "
+                f"where N is an object number between 1 and {self.num_objects}."
             )
             if state["step_count"] >= self.max_num_steps:
                 state["phase"] = "answer"
@@ -280,10 +317,11 @@ class BlicketEnv(vf.MultiTurnEnv):
         target_state = 1 if target == "on" else 0
 
         if current_state == target_state:
+            state["redundant_action_count"] += 1
             already = "on" if current_state == 1 else "off"
             error_msg = (
                 f"Step {state['step_count']}/{self.max_num_steps}: "
-                f"Object {obj_id} is already {already} the machine. This is a no-op."
+                f"Object {obj_id} is already {already} the machine. This is a no-op as it is redundant!"
             )
             if state["step_count"] >= self.max_num_steps:
                 state["phase"] = "answer"
@@ -296,6 +334,14 @@ class BlicketEnv(vf.MultiTurnEnv):
         state["machine_state"] = compute_machine_state(
             state["object_states"], state["blickets"], state["rule_type"]
         )
+
+        # Filter hypotheses against this observation
+        prev_count = len(state["valid_hypotheses"])
+        state["valid_hypotheses"] = [
+            (bits, rule) for bits, rule in state["valid_hypotheses"]
+            if is_consistent(state["object_states"], np.array(bits), rule, state["machine_state"])
+        ]
+        state["hypotheses_eliminated_per_step"].append(prev_count - len(state["valid_hypotheses"]))
 
         # Build action description
         if target == "on":
@@ -341,19 +387,15 @@ class BlicketEnv(vf.MultiTurnEnv):
         )
         return [{"role": "user", "content": msg}]
 
-    @vf.stop
-    async def exploration_complete(self, state: vf.State) -> bool:
-        """Stop when the answer has been submitted."""
-        return state.get("phase") == "done"
-
 
 # --- Reward and metric functions ---
 
 
 async def blicket_identification(completion, state, parser) -> float:
     """Primary reward: per-object accuracy of Blicket identification."""
-    parsed = parser.parse(completion)
-    action_str = parsed.action if parsed.action else ""
+    action_str = parser.parse_answer(completion)
+    if action_str is None:
+        action_str = ''
     predictions = parse_predictions(action_str, state["num_objects"])
     ground_truth = state["blickets"]
 
@@ -367,25 +409,57 @@ async def blicket_identification(completion, state, parser) -> float:
     return correct / len(ground_truth)
 
 
-async def exploration_efficiency(state) -> float:
+async def step_budget_utilization(state) -> float:
     """Metric: 1.0 - (steps_used / max_steps). Higher = fewer steps used."""
     steps_used = state.get("step_count", 0)
     max_steps = state.get("max_num_steps", 1)
     return 1.0 - (steps_used / max_steps)
 
 
+async def exploration_inefficiency(state) -> float:
+    """Metric: total number of revisited configurations.
+
+    Counts two sources of revisits:
+    1. Redundant actions (no-ops blocked by env_response) — tracked in state.
+    2. Non-contiguous revisits — valid actions that produce a configuration
+       already seen earlier in the history.
+
+    Lower is better (0 = no wasted actions).
+    """
+    redundant = state.get("redundant_action_count", 0)
+
+    # Count non-contiguous revisits from history
+    history = state.get("history", [])
+    seen = set()
+    non_contiguous = 0
+    for entry in history:
+        config = frozenset(entry["on_objects"])
+        if config in seen:
+            non_contiguous += 1
+        seen.add(config)
+
+    return float(redundant + non_contiguous)
+
+
 async def format_compliance(state) -> float:
-    """Metric: fraction of exploration turns with parseable valid actions."""
+    """Metric: fraction of exploration turns with parseable AND valid actions."""
     total = state.get("total_action_count", 0)
     if total == 0:
         return 1.0
-    parseable = state.get("parseable_action_count", 0)
-    return parseable / total
+    valid = state.get("valid_action_count", 0)
+    return valid / total
 
 
 async def hypotheses_eliminated(state) -> float:
-    """Placeholder metric for future information-theoretic analysis."""
-    return 0.0
+    """Metric: total number of hypotheses eliminated during exploration.
+
+    A hypothesis is a (blicket_assignment, rule_type) pair. After each valid action,
+    hypotheses inconsistent with the observed machine state are removed. This metric
+    returns the cumulative count of eliminated hypotheses across all steps.
+
+    Higher = more informative exploration.
+    """
+    return float(sum(state.get("hypotheses_eliminated_per_step", [])))
 
 
 # --- Entry point ---
@@ -436,11 +510,12 @@ def load_environment(
     ])
 
     # Build parser (shared between env and rubric)
-    parser = vf.XMLParser(fields=["reasoning", "action"])
+    parser = vf.XMLParser(fields=["reasoning", "action"], answer_field="action")
 
     # Build rubric
     rubric = vf.Rubric(funcs=[blicket_identification], weights=[1.0], parser=parser)
-    rubric.add_metric(exploration_efficiency)
+    rubric.add_metric(step_budget_utilization)
+    rubric.add_metric(exploration_inefficiency)
     rubric.add_metric(format_compliance)
     rubric.add_metric(hypotheses_eliminated)
 
