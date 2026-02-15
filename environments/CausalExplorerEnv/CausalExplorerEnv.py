@@ -179,48 +179,25 @@ def format_history(history: list) -> str:
 
 
 class BlicketEnv(vf.MultiTurnEnv):
-    def __init__(
-        self,
-        num_objects: int,
-        num_blickets: int,
-        max_num_steps: int,
-        rule_type: str | None,
-        seed: int,
-        **kwargs,
-    ):
-        self.num_objects = num_objects
-        self.num_blickets = num_blickets
-        self.max_num_steps = max_num_steps
-        self.rule_type = rule_type
-        self.seed = seed
-        self._rollout_counter = 0
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     async def setup_state(self, state: vf.State, **kwargs) -> vf.State:
-        # Derive a unique RNG per rollout
-        rng = np.random.default_rng(self.seed + self._rollout_counter)
-        self._rollout_counter += 1
-
-        # Resolve rule type
-        if self.rule_type is None:
-            resolved_rule = rng.choice(["disjunctive", "conjunctive"])
-        else:
-            resolved_rule = self.rule_type
-
-        # Random Blicket assignment: choose num_blickets positions
-        blicket_indices = rng.choice(self.num_objects, size=self.num_blickets, replace=False)
-        blickets = np.zeros(self.num_objects, dtype=int)
-        blickets[blicket_indices] = 1
+        # Read per-row config from dataset info (pre-computed in load_environment)
+        info = state["info"]
+        num_objects = info["num_objects"]
+        max_num_steps = info["max_num_steps"]
+        blickets = np.array(info["blickets"], dtype=int)
 
         state["blickets"] = blickets
-        state["object_states"] = np.zeros(self.num_objects, dtype=int)
+        state["object_states"] = np.zeros(num_objects, dtype=int)
         state["machine_state"] = 0
-        state["rule_type"] = resolved_rule
+        state["rule_type"] = info["rule_type"]
         state["step_count"] = 0
         state["phase"] = "exploration"
         state["history"] = []
-        state["num_objects"] = self.num_objects
-        state["max_num_steps"] = self.max_num_steps
+        state["num_objects"] = num_objects
+        state["max_num_steps"] = max_num_steps
         state["valid_action_count"] = 0
         state["parseable_action_count"] = 0
         state["total_action_count"] = 0
@@ -230,7 +207,7 @@ class BlicketEnv(vf.MultiTurnEnv):
         # 2^N blicket assignments × 2 rule types = 2^(N+1) hypotheses
         state["valid_hypotheses"] = [
             (bits, rule)
-            for bits in product((0, 1), repeat=self.num_objects)
+            for bits in product((0, 1), repeat=num_objects)
             for rule in ("disjunctive", "conjunctive")
         ]
         state["hypotheses_eliminated_per_step"] = []
@@ -249,23 +226,23 @@ class BlicketEnv(vf.MultiTurnEnv):
 
         # --- Answer phase: agent has submitted predictions ---
         if state["phase"] == "answer":
-            predictions = parse_predictions(action_str, self.num_objects)
+            predictions = parse_predictions(action_str, state["num_objects"])
             if predictions is not None:
                 correct = sum(
-                    1 for i in range(self.num_objects)
+                    1 for i in range(state["num_objects"])
                     if predictions.get(i + 1) == bool(state["blickets"][i])
                 )
-                score = correct / self.num_objects
-                blicket_list = [str(i + 1) for i in range(self.num_objects) if state["blickets"][i] == 1]
+                score = correct / state["num_objects"]
+                blicket_list = [str(i + 1) for i in range(state["num_objects"]) if state["blickets"][i] == 1]
                 final_msg = (
                     f"Your answer has been recorded. "
-                    f"You correctly identified {correct}/{self.num_objects} objects. "
+                    f"You correctly identified {correct}/{state['num_objects']} objects. "
                     f"Score: {score:.2f}\n"
                     f"The Blickets were: [{', '.join(blicket_list)}]\n"
                     f"The rule was: {state['rule_type']}"
                 )
             else:
-                blicket_list = [str(i + 1) for i in range(self.num_objects) if state["blickets"][i] == 1]
+                blicket_list = [str(i + 1) for i in range(state["num_objects"]) if state["blickets"][i] == 1]
                 final_msg = (
                     f"Could not parse your answer. Please use the format: 1: True, 2: False, ...\n"
                     f"The Blickets were: [{', '.join(blicket_list)}]\n"
@@ -293,12 +270,12 @@ class BlicketEnv(vf.MultiTurnEnv):
         if action is None:
             # Unparseable action
             error_msg = (
-                f"Step {state['step_count']}/{self.max_num_steps}: "
+                f"Step {state['step_count']}/{state['max_num_steps']}: "
                 f"Invalid action format. Expected <action>put N on</action>, "
                 f"<action>put N off</action>, or <action>exit</action>, "
-                f"where N is an object number between 1 and {self.num_objects}."
+                f"where N is an object number between 1 and {state['num_objects']}."
             )
-            if state["step_count"] >= self.max_num_steps:
+            if state["step_count"] >= state["max_num_steps"]:
                 state["phase"] = "answer"
                 return [{"role": "user", "content": error_msg + "\n\n"}] + self._build_transition_message(state)
             return [{"role": "user", "content": error_msg}]
@@ -309,12 +286,12 @@ class BlicketEnv(vf.MultiTurnEnv):
         obj_id = action["id"]
         target = action["target"]
 
-        if obj_id < 1 or obj_id > self.num_objects:
+        if obj_id < 1 or obj_id > state["num_objects"]:
             error_msg = (
-                f"Step {state['step_count']}/{self.max_num_steps}: "
-                f"Invalid object ID {obj_id}. Must be between 1 and {self.num_objects}."
+                f"Step {state['step_count']}/{state['max_num_steps']}: "
+                f"Invalid object ID {obj_id}. Must be between 1 and {state['num_objects']}."
             )
-            if state["step_count"] >= self.max_num_steps:
+            if state["step_count"] >= state["max_num_steps"]:
                 state["phase"] = "answer"
                 return [{"role": "user", "content": error_msg + "\n\n"}] + self._build_transition_message(state)
             return [{"role": "user", "content": error_msg}]
@@ -326,10 +303,10 @@ class BlicketEnv(vf.MultiTurnEnv):
             state["redundant_action_count"] += 1
             already = "on" if current_state == 1 else "off"
             error_msg = (
-                f"Step {state['step_count']}/{self.max_num_steps}: "
+                f"Step {state['step_count']}/{state['max_num_steps']}: "
                 f"Object {obj_id} is already {already} the machine. This is a no-op as it is redundant!"
             )
-            if state["step_count"] >= self.max_num_steps:
+            if state["step_count"] >= state["max_num_steps"]:
                 state["phase"] = "answer"
                 return [{"role": "user", "content": error_msg + "\n\n"}] + self._build_transition_message(state)
             return [{"role": "user", "content": error_msg}]
@@ -356,8 +333,8 @@ class BlicketEnv(vf.MultiTurnEnv):
             action_desc = f"You removed object {obj_id} from the machine."
 
         # Record history
-        on_objects = [i + 1 for i in range(self.num_objects) if state["object_states"][i] == 1]
-        off_objects = [i + 1 for i in range(self.num_objects) if state["object_states"][i] == 0]
+        on_objects = [i + 1 for i in range(state["num_objects"]) if state["object_states"][i] == 1]
+        off_objects = [i + 1 for i in range(state["num_objects"]) if state["object_states"][i] == 0]
         state["history"].append({
             "step": state["step_count"],
             "action": f"put {obj_id} {target}",
@@ -368,14 +345,14 @@ class BlicketEnv(vf.MultiTurnEnv):
 
         observation = format_observation(
             state["step_count"],
-            self.max_num_steps,
+            state["max_num_steps"],
             action_desc,
             state["object_states"],
             state["machine_state"],
         )
 
         # Check if step limit reached after this step
-        if state["step_count"] >= self.max_num_steps:
+        if state["step_count"] >= state["max_num_steps"]:
             state["phase"] = "answer"
             return [{"role": "user", "content": observation + "\n\n"}] + self._build_transition_message(state)
 
@@ -385,7 +362,7 @@ class BlicketEnv(vf.MultiTurnEnv):
         """Build the transition message from exploration to answer phase."""
         history_str = format_history(state["history"]) if state["history"] else "No valid exploration steps were taken."
         msg = (
-            f"Exploration complete. You used {state['step_count']} of {self.max_num_steps} steps.\n\n"
+            f"Exploration complete. You used {state['step_count']} of {state['max_num_steps']} steps.\n\n"
             f"Here is your full observation history:\n"
             f"{history_str}\n\n"
             f"Now identify which objects are Blickets. For each object, respond True or False.\n"
@@ -472,48 +449,72 @@ async def hypotheses_eliminated(state) -> float:
 
 
 def load_environment(
-    num_objects: int = 4,
-    num_blickets: int = 2,
-    max_num_steps: int = 32,
-    rule_type: str | None = None,
+    num_objects_range: tuple[int, int] = (3, 6),
     num_examples: int = 100,
     seed: int = 42,
 ) -> vf.Environment:
-    """Load the CausalExplorerEnv (Blicket machine) environment."""
+    """Load the CausalExplorerEnv (Blicket machine) environment.
 
-    # Validate parameters
-    if not (2 <= num_blickets <= num_objects):
+    Each dataset row is generated with a unique configuration sampled from
+    the provided ranges, producing a diverse evaluation across varying
+    numbers of objects, blickets, step budgets, and rule types.
+
+    Args:
+        num_objects_range: Inclusive (min, max) range for number of objects per row.
+        num_examples: Number of dataset rows to generate.
+        seed: RNG seed for reproducible dataset generation.
+    """
+
+    # Validate ranges
+    obj_lo, obj_hi = num_objects_range
+    if not (2 <= obj_lo <= obj_hi <= 10):
         raise ValueError(
-            f"num_blickets must satisfy 2 <= num_blickets <= num_objects, "
-            f"got num_blickets={num_blickets}, num_objects={num_objects}"
-        )
-    if not (2 <= num_objects <= 10):
-        raise ValueError(f"num_objects must satisfy 2 <= num_objects <= 10, got {num_objects}")
-    if not (2**num_objects <= max_num_steps <= 2 ** (num_objects + 1)):
-        raise ValueError(
-            f"max_num_steps must satisfy 2^num_objects <= max_num_steps <= 2^(num_objects+1), "
-            f"got max_num_steps={max_num_steps}, num_objects={num_objects} "
-            f"(valid range: [{2**num_objects}, {2**(num_objects + 1)}])"
-        )
-    if rule_type is not None and rule_type not in ("disjunctive", "conjunctive"):
-        raise ValueError(
-            f"rule_type must be 'disjunctive', 'conjunctive', or None, got '{rule_type}'"
+            f"num_objects_range must satisfy 2 <= lo <= hi <= 10, got {num_objects_range}"
         )
 
-    # Build dataset
-    initial_message = build_initial_message(num_objects)
-    dataset = Dataset.from_list([
-        {
-            "prompt": [{"role": "user", "content": initial_message}],
+    # Generate diverse dataset rows
+    rng = np.random.default_rng(seed)
+    rows = []
+    global_max_steps = 0
+
+    for _ in range(num_examples):
+        # Sample num_objects
+        n_obj = int(rng.integers(obj_lo, obj_hi + 1))
+
+        # Auto-derive num_blickets: [2, n_obj]
+        n_blick = int(rng.integers(2, n_obj + 1))
+
+        # Auto-derive max_num_steps: [2^n_obj, 2^(n_obj+1)]
+        step_floor = 2 ** n_obj
+        step_ceil = 2 ** (n_obj + 1)
+        max_steps = int(rng.integers(step_floor, step_ceil + 1))
+        global_max_steps = max(global_max_steps, max_steps)
+
+        # Sample rule type for this row
+        row_rule = rng.choice(["disjunctive", "conjunctive"])
+
+        # Assign blickets at dataset generation time
+        blicket_indices = sorted(rng.choice(n_obj, size=n_blick, replace=False).tolist())
+        blickets = [0] * n_obj
+        for idx in blicket_indices:
+            blickets[idx] = 1
+
+        # Build per-row prompt with embedded system prompt
+        system_msg = {"role": "system", "content": build_system_prompt(n_obj, max_steps)}
+        user_msg = {"role": "user", "content": build_initial_message(n_obj)}
+
+        rows.append({
+            "prompt": [system_msg, user_msg],
             "info": json.dumps({
-                "num_objects": num_objects,
-                "num_blickets": num_blickets,
-                "max_num_steps": max_num_steps,
-                "rule_type": rule_type,
+                "num_objects": n_obj,
+                "num_blickets": n_blick,
+                "max_num_steps": max_steps,
+                "rule_type": row_rule,
+                "blickets": blickets,
             }),
-        }
-        for _ in range(num_examples)
-    ])
+        })
+
+    dataset = Dataset.from_list(rows)
 
     # Build parser (shared between env and rubric)
     parser = vf.XMLParser(fields=["reasoning", "action"], answer_field="action")
@@ -525,21 +526,12 @@ def load_environment(
     rubric.add_metric(format_compliance)
     rubric.add_metric(hypotheses_eliminated)
 
-    # Build system prompt
-    system_prompt = build_system_prompt(num_objects, max_num_steps)
-
-    # max_turns = max_num_steps + 2 (exploration + transition + answer)
-    max_turns = max_num_steps + 2
+    # max_turns = max possible steps across all rows + 2 (transition + answer)
+    max_turns = global_max_steps + 2
 
     return BlicketEnv(
-        num_objects=num_objects,
-        num_blickets=num_blickets,
-        max_num_steps=max_num_steps,
-        rule_type=rule_type,
-        seed=seed,
         dataset=dataset,
         rubric=rubric,
         parser=parser,
-        system_prompt=system_prompt,
         max_turns=max_turns,
     )
