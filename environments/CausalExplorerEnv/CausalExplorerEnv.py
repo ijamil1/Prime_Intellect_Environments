@@ -1,4 +1,5 @@
 import json
+import math
 import re
 from itertools import product
 
@@ -94,7 +95,7 @@ state of the machine (in other words, the object's state (on/off the machine) di
 information)
 
 Your goal is to determine exactly which objects are Blickets through exploration.
-You have a maximum of {max_num_steps} steps to conduct the exploration phase. You can also exit this phase early if you think you understand the relationship between the
+You have a maximum of {max_num_steps} steps to conduct the exploration phase so you must act efficiently. You can also exit this phase early if you think you understand the relationship between the
 objects and the machine. After the exploration phase is done, you will be asked which objects are blickets.
 
 RULES:
@@ -122,8 +123,8 @@ During the answer phase, respond with:
 
 Where True means the object is a Blicket and False means it is not. You must provide a prediction for every object.
 
-STRATEGY: Plan your experiments carefully to gather maximum information efficiently. \
-Think about what each observation tells you about the hidden rule and which objects might be Blickets. Remember, your ultimate goal is to identify the Blickets"""
+STRATEGY: Plan your experiments carefully to gather maximum information efficiently since you are limited by the number of actions you can take. \
+Think about what actions will give you the most information and what each observation tells you about the hidden rule and which objects might be Blickets."""
 
 
 def build_initial_message(num_objects: int) -> str:
@@ -131,10 +132,10 @@ def build_initial_message(num_objects: int) -> str:
     object_list = ", ".join(str(i) for i in range(1, num_objects + 1))
     return f"""\
 You are in front of a Blicket-detecting machine with {num_objects} objects: {object_list}.
-Some of these objects are "Blickets" that activate the machine according to a hidden rule.
-Currently, no objects are on the machine. The machine is OFF.
+Currently, no objects are on the machine. The machine is OFF. Your task is to determine which objects \
+are blickets.
 
-Begin your exploration."""
+Begin"""
 
 
 def format_observation(
@@ -173,6 +174,94 @@ def format_history(history: list) -> str:
             f"Step {step}: {action} → Objects on: {on_list} | Objects off: {off_list} → Machine: {machine}"
         )
     return "\n".join(lines)
+
+
+def compute_optimal_steps(
+    num_objects: int,
+    blickets: list[int],
+    rule_type: str,
+    num_samples: int = 50,
+    seed: int = 0,
+) -> float:
+    """Compute average exploration steps for a greedy info-gain-maximizing agent.
+
+    Simulates an agent that at each step selects the single-object toggle which
+    best bisects the active hypothesis space.  Ties are broken by:
+      1. Preferring actions that lead to a never-before-seen object configuration.
+      2. Randomly choosing among remaining tied actions.
+    Because of (2), the simulation is run *num_samples* times with different RNG
+    seeds and the results are averaged.
+
+    Outcomes are determined by the true *blickets* and *rule_type*.  Exploration
+    stops when only one hypothesis remains.
+    """
+    rng = np.random.default_rng(seed)
+    run_seeds = rng.integers(0, 2**31, size=num_samples)
+
+    def predict(obj_states, blicket_bits, rule):
+        """Pure-Python machine-state prediction for a hypothesis."""
+        active = [obj_states[i] for i in range(num_objects) if blicket_bits[i]]
+        return int(any(active)) if rule == "disjunctive" else int(all(active))
+
+    # Full hypothesis space: 2^N blicket assignments × 2 rule types
+    all_hypotheses = [
+        (bits, rule)
+        for bits in product((0, 1), repeat=num_objects)
+        for rule in ("disjunctive", "conjunctive")
+    ]
+
+    # Pre-filter against the free initial observation (shared across runs)
+    init_state = tuple([0] * num_objects)
+    init_machine = predict(init_state, blickets, rule_type)
+    init_active = [
+        (bits, rule) for bits, rule in all_hypotheses
+        if predict(init_state, bits, rule) == init_machine
+    ]
+
+    max_iters = 2 ** (num_objects + 1)  # safety bound
+    total_steps = 0
+
+    for rs in run_seeds:
+        run_rng = np.random.default_rng(int(rs))
+        obj_states = list(init_state)
+        active = list(init_active)
+        visited = {init_state}
+        steps = 0
+
+        while steps < max_iters and len(active) > 1:
+            # Compute balance for every possible toggle
+            candidates = []
+            for i in range(num_objects):
+                trial = list(obj_states)
+                trial[i] = 1 - trial[i]
+                on_count = sum(
+                    1 for bits, rule in active if predict(trial, bits, rule) == 1
+                )
+                bal = min(on_count, len(active) - on_count)
+                is_new = tuple(trial) not in visited
+                candidates.append((i, bal, is_new))
+
+            best_bal = max(b for _, b, _ in candidates)
+            tied = [(i, is_new) for i, b, is_new in candidates if b == best_bal]
+
+            # Tiebreak 1: prefer actions leading to unseen configurations
+            unseen = [i for i, is_new in tied if is_new]
+            if unseen:
+                action = int(run_rng.choice(unseen))
+            else:
+                action = int(run_rng.choice([i for i, _ in tied]))
+
+            obj_states[action] = 1 - obj_states[action]
+            visited.add(tuple(obj_states))
+            actual = predict(obj_states, blickets, rule_type)
+            active = [
+                (b, r) for b, r in active if predict(obj_states, b, r) == actual
+            ]
+            steps += 1
+
+        total_steps += steps
+
+    return total_steps / num_samples
 
 
 # --- Environment class ---
@@ -484,12 +573,6 @@ def load_environment(
         # Auto-derive num_blickets: [2, n_obj]
         n_blick = int(rng.integers(2, n_obj + 1))
 
-        # Auto-derive max_num_steps: [2^n_obj, 2^(n_obj+1)]
-        step_floor = 2 ** n_obj
-        step_ceil = 2 ** (n_obj + 1)
-        max_steps = int(rng.integers(step_floor, step_ceil + 1))
-        global_max_steps = max(global_max_steps, max_steps)
-
         # Sample rule type for this row
         row_rule = rng.choice(["disjunctive", "conjunctive"])
 
@@ -498,6 +581,13 @@ def load_environment(
         blickets = [0] * n_obj
         for idx in blicket_indices:
             blickets[idx] = 1
+
+        # Compute optimal exploration steps via greedy info-gain simulation,
+        # then give the agent a 20% budget cushion
+        row_seed = int(rng.integers(0, 2**31))
+        optimal_steps = compute_optimal_steps(n_obj, blickets, row_rule, seed=row_seed)
+        max_steps = max(1, math.ceil(1.2 * optimal_steps))
+        global_max_steps = max(global_max_steps, max_steps)
 
         # Build per-row prompt with embedded system prompt
         system_msg = {"role": "system", "content": build_system_prompt(n_obj, max_steps)}
