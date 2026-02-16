@@ -124,7 +124,7 @@ During the answer phase, respond with:
 Where True means the object is a Blicket and False means it is not. You must provide a prediction for every object.
 
 STRATEGY: Plan your experiments carefully to gather maximum information efficiently since you are limited by the number of actions you can take. \
-Think about what actions will give you the most information and what each observation tells you about the hidden rule and which objects might be Blickets."""
+Reason about what actions will give you the most information and what each observation tells you about the hidden rule and which objects might be Blickets."""
 
 
 def build_initial_message(num_objects: int) -> str:
