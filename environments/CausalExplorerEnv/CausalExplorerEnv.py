@@ -510,7 +510,7 @@ async def exploration_inefficiency(state) -> float:
             non_contiguous += 1
         seen.add(config)
 
-    return float(redundant + non_contiguous)
+    return float(redundant + non_contiguous)/state['parseable_action_count']
 
 
 async def format_compliance(state) -> float:
