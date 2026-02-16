@@ -261,7 +261,7 @@ def compute_optimal_steps(
 
         total_steps += steps
 
-    return total_steps / num_samples
+    return total_steps / num_samples, len(all_hypotheses) - 1
 
 
 # --- Environment class ---
@@ -291,6 +291,7 @@ class BlicketEnv(vf.MultiTurnEnv):
         state["parseable_action_count"] = 0
         state["total_action_count"] = 0
         state["redundant_action_count"] = 0
+        state["optimal_hypotheses_eliminated"] = info["optimal_hypotheses_eliminated"]
 
         # Initialize hypothesis space: all (blicket_assignment, rule_type) pairs
         # 2^N blicket assignments × 2 rule types = 2^(N+1) hypotheses
@@ -482,22 +483,33 @@ async def blicket_identification(completion, state, parser) -> float:
 
 
 async def step_budget_utilization(state) -> float:
-    """Metric: 1.0 - (steps_used / max_steps). Higher = more steps used."""
+    """Metric: fraction of the step budget consumed (steps_used / max_steps).
+
+    Returns a value in [0, 1]. A value of 1.0 means the agent used the entire
+    budget; lower values indicate the agent exited early.
+    """
     steps_used = state.get("step_count", 0)
     max_steps = state.get("max_num_steps", 1)
     return steps_used / max_steps
 
 
 async def exploration_inefficiency(state) -> float:
-    """Metric: total number of revisited configurations.
+    """Metric: fraction of parseable actions that were wasted.
 
-    Counts two sources of revisits:
-    1. Redundant actions (no-ops blocked by env_response) — tracked in state.
-    2. Non-contiguous revisits — valid actions that produce a configuration
-       already seen earlier in the history.
+    Counts two disjoint sources of waste relative to parseable actions:
+    1. Redundant actions — no-ops where the object was already in the
+       requested state (blocked by env_response, not added to history).
+    2. Non-contiguous revisits — valid actions that reproduce a machine
+       configuration already seen earlier in the history.
 
-    Lower is better (0 = no wasted actions).
+    Returns (redundant + revisits) / parseable_action_count, a value in
+    [0, 1].  Lower is better (0 = no wasted actions).  Returns 0.0 when
+    no parseable actions were taken.
     """
+    parseable = state.get("parseable_action_count", 0)
+    if parseable == 0:
+        return 0.0
+
     redundant = state.get("redundant_action_count", 0)
 
     # Count non-contiguous revisits from history
@@ -510,7 +522,7 @@ async def exploration_inefficiency(state) -> float:
             non_contiguous += 1
         seen.add(config)
 
-    return float(redundant + non_contiguous)/state['parseable_action_count']
+    return float(redundant + non_contiguous) / parseable
 
 
 async def format_compliance(state) -> float:
@@ -523,15 +535,19 @@ async def format_compliance(state) -> float:
 
 
 async def hypotheses_eliminated(state) -> float:
-    """Metric: total number of hypotheses eliminated during exploration.
+    """Metric: fraction of hypotheses eliminated relative to the optimal agent.
 
-    A hypothesis is a (blicket_assignment, rule_type) pair. After each valid action,
-    hypotheses inconsistent with the observed machine state are removed. This metric
-    returns the cumulative count of eliminated hypotheses across all steps.
+    The denominator is the number of hypotheses that need to be eliminated to
+    uniquely identify the true hypothesis (2^(N+1) - 1, pre-computed at
+    dataset generation time from the greedy info-gain simulation).  The
+    numerator is the cumulative count of hypotheses the agent actually
+    eliminated across all valid exploration steps.
 
-    Higher = more informative exploration.
+    Returns a value in [0, 1].  Higher = more informative exploration.
     """
-    return float(sum(state.get("hypotheses_eliminated_per_step", [])))
+    optimal = state.get("optimal_hypotheses_eliminated", 1)
+    eliminated = float(sum(state.get("hypotheses_eliminated_per_step", [])))
+    return min(1.0, eliminated / optimal)
 
 
 # --- Entry point ---
@@ -585,7 +601,7 @@ def load_environment(
         # Compute optimal exploration steps via greedy info-gain simulation,
         # then give the agent a 20% budget cushion
         row_seed = int(rng.integers(0, 2**31))
-        optimal_steps = compute_optimal_steps(n_obj, blickets, row_rule, seed=row_seed)
+        optimal_steps, hyps_elim_by_opt_agent = compute_optimal_steps(n_obj, blickets, row_rule, seed=row_seed)
         max_steps = max(1, math.ceil(1.2 * optimal_steps))
         global_max_steps = max(global_max_steps, max_steps)
 
@@ -601,6 +617,7 @@ def load_environment(
                 "max_num_steps": max_steps,
                 "rule_type": row_rule,
                 "blickets": blickets,
+                "optimal_hypotheses_eliminated": hyps_elim_by_opt_agent
             }),
         })
 
