@@ -6,7 +6,6 @@ models=(
   "openai/gpt-5.1-chat"
   "allenai/olmo-3.1-32b-think"
   "arcee-ai/trinity-mini"
-  "Qwen/Qwen3-4B-Thinking-2507"
 )
 
 EVALS_DIR="./environments/CausalExplorerEnv/outputs/evals"
