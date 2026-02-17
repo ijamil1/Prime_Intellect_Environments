@@ -7,3 +7,4 @@ environments/CausalExplorerEnv/outputs/*
 test_optimal_steps.py
 */*/.prime/
 */*/dist/
+test_dataset_determinism*

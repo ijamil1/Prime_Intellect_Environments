@@ -323,6 +323,7 @@ class BlicketEnv(vf.MultiTurnEnv):
                     if predictions.get(i + 1) == bool(state["blickets"][i])
                 )
                 score = correct / state["num_objects"]
+                state['final_score'] = score
                 blicket_list = [str(i + 1) for i in range(state["num_objects"]) if state["blickets"][i] == 1]
                 final_msg = (
                     f"Your answer has been recorded. "
@@ -483,14 +484,18 @@ async def blicket_identification(completion, state, parser) -> float:
 
 
 async def step_budget_utilization(state) -> float:
-    """Metric: fraction of the step budget consumed (steps_used / max_steps).
+    """Reward: efficiency bonus for using fewer steps, gated on perfect identification.
 
-    Returns a value in [0, 1]. A value of 1.0 means the agent used the entire
-    budget; lower values indicate the agent exited early.
+    Returns 0.0 unless the agent achieved a perfect blicket identification score
+    (final_score == 1.0). When perfect, returns 1 - (steps_used / max_steps),
+    so fewer steps yields a higher reward.
     """
+    final_score = state.get("final_score", 0.0)
+    if final_score != 1.0:
+        return 0.0
     steps_used = state.get("step_count", 0)
     max_steps = state.get("max_num_steps", 1)
-    return steps_used / max_steps
+    return 1.0 - (steps_used / max_steps)
 
 
 async def exploration_inefficiency(state) -> float:
@@ -572,9 +577,9 @@ def load_environment(
 
     # Validate ranges
     obj_lo, obj_hi = num_objects_range
-    if not (2 <= obj_lo <= obj_hi <= 10):
+    if not (4 <= obj_lo <= obj_hi <= 10):
         raise ValueError(
-            f"num_objects_range must satisfy 2 <= lo <= hi <= 10, got {num_objects_range}"
+            f"num_objects_range must satisfy 4 <= lo <= hi <= 10, got {num_objects_range}"
         )
 
     # Generate diverse dataset rows
@@ -587,7 +592,7 @@ def load_environment(
         n_obj = int(rng.integers(obj_lo, obj_hi + 1))
 
         # Auto-derive num_blickets: [2, n_obj]
-        n_blick = int(rng.integers(2, n_obj + 1))
+        n_blick = int(rng.integers(2, int(n_obj/2)+1))
 
         # Sample rule type for this row
         row_rule = rng.choice(["disjunctive", "conjunctive"])
@@ -602,7 +607,7 @@ def load_environment(
         # then give the agent a 20% budget cushion
         row_seed = int(rng.integers(0, 2**31))
         optimal_steps, hyps_elim_by_opt_agent = compute_optimal_steps(n_obj, blickets, row_rule, seed=row_seed)
-        max_steps = max(1, math.ceil(1.2 * optimal_steps))
+        max_steps = max(1, math.ceil(1.5 * optimal_steps))
         global_max_steps = max(global_max_steps, max_steps)
 
         # Build per-row prompt with embedded system prompt
@@ -627,11 +632,13 @@ def load_environment(
     parser = vf.XMLParser(fields=["reasoning", "action"], answer_field="action")
 
     # Build rubric
-    rubric = vf.Rubric(funcs=[blicket_identification], weights=[1.0], parser=parser)
-    rubric.add_metric(step_budget_utilization)
+    rubric = vf.Rubric(
+        funcs=[blicket_identification, hypotheses_eliminated, step_budget_utilization],
+        weights=[0.475, 0.475, 0.05],
+        parser=parser,
+    )
     rubric.add_metric(exploration_inefficiency)
     rubric.add_metric(format_compliance)
-    rubric.add_metric(hypotheses_eliminated)
 
     # max_turns = max possible steps across all rows + 2 (transition + answer)
     max_turns = global_max_steps + 2
