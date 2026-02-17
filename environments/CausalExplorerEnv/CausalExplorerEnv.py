@@ -561,7 +561,7 @@ async def hypotheses_eliminated(state) -> float:
 
 
 def load_environment(
-    num_objects_range: tuple[int, int] = (3, 6),
+    num_objects_range: tuple[int, int] = (4, 10),
     num_examples: int = 100,
     seed: int = 42,
 ) -> vf.Environment:
