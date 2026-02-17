@@ -4,8 +4,8 @@ models=(
   "allenai/olmo-3.1-32b-instruct"
   "meta-llama/llama-3.1-70b-instruct"
   "openai/gpt-5.1-chat"
-  "allenai/olmo-3.1-32b-think"
-  "arcee-ai/trinity-mini"
+  "qwen/qwen3-30b-a3b-instruct-2507"
+  "allenai/olmo-3-7b-instruct"
 )
 
 EVALS_DIR="./environments/CausalExplorerEnv/outputs/evals"
