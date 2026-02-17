@@ -457,7 +457,9 @@ class BlicketEnv(vf.MultiTurnEnv):
             f"Here is your full observation history:\n"
             f"{history_str}\n\n"
             f"Now identify which objects are Blickets. For each object, respond True or False.\n"
-            f"Use the format: 1: True, 2: False, ..."
+            f"You MUST respond using XML tags. For example:\n"
+            f"<reasoning>Your analysis of which objects are Blickets...</reasoning>\n"
+            f"<action>1: True, 2: False, ...</action>"
         )
         return [{"role": "user", "content": msg}]
 
