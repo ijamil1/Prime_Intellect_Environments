@@ -1,0 +1,11 @@
+# configs/lab/CausalExplorerEnv.toml
+model = "allenai/OLMo-3-7B-Instruct"
+max_steps = 10
+batch_size = 75
+rollouts_per_example = 6
+
+[sampling]
+max_tokens = 5000
+
+[[env]]
+id = "irfanjamil/CausalExplorerEnv"
