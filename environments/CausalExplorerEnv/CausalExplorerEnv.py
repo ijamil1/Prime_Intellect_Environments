@@ -634,7 +634,7 @@ def load_environment(
     # Build rubric
     rubric = vf.Rubric(
         funcs=[blicket_identification, hypotheses_eliminated, step_budget_utilization],
-        weights=[0.475, 0.475, 0.05],
+        weights=[0.45, 0.45, 0.1],
         parser=parser,
     )
     rubric.add_metric(exploration_inefficiency)

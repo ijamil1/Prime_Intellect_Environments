@@ -115,8 +115,8 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 
 | Component | Type | Weight | Meaning |
 | --------- | ---- | ------ | ------- |
-| `blicket_identification` | reward | 0.475 | Per-object accuracy of Blicket predictions |
-| `hypotheses_eliminated` | reward | 0.475 | Fraction of hypotheses eliminated vs. the optimal greedy info-gain agent. Higher is better |
-| `step_budget_utilization` | reward | 0.05 | `1 - (steps_used / max_steps)` when perfect identification; 0 otherwise |
+| `blicket_identification` | reward | 0.45 | Per-object accuracy of Blicket predictions |
+| `hypotheses_eliminated` | reward | 0.45 | Fraction of hypotheses eliminated vs. the optimal greedy info-gain agent. Higher is better |
+| `step_budget_utilization` | reward | 0.1 | `1 - (steps_used / max_steps)` when perfect identification; 0 otherwise |
 | `exploration_inefficiency` | metric | — | `(redundant + revisits) / parseable_actions` — fraction of wasted actions. Lower is better |
 | `format_compliance` | metric | — | Fraction of exploration turns with parseable AND valid actions |
