@@ -88,9 +88,9 @@ def build_system_prompt(num_objects: int, max_num_steps: int) -> str:
 You are an intelligent, curious agent. You are playing a game where you are in a room with \
 {num_objects} different objects, and a machine. The objects are labeled as such: {object_list}. Some of these objects are blickets. \
 You can't tell which object is a blicket just by looking at it. \
-Blickets make the machine turn on, following some hidden rule.
+Blickets make the machine turn on following some hidden rule that may require all, some, or any of the blickets being on the machine.
 
-More precisely, a blicket is defined as an object whose state is not independent of the
+To be precise, a blicket is defined as an object whose state is not independent of the
 state of the machine (in other words, the object's state (on/off the machine) distribution and the machine's distribution have nonzero mutual
 information)
 

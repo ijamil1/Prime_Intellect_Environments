@@ -11,7 +11,7 @@ Based on [Do LLMs Think Like Scientists? Causal Reasoning and Hypothesis Testing
 ### Task
 - **Type**: multi-turn
 - **Parser**: XMLParser (fields: `reasoning`, `action`)
-- **Rubric overview**: Primary reward is per-object Blicket identification accuracy. Metrics track step budget utilization, exploration inefficiency, format compliance, and hypotheses eliminated.
+- **Rubric overview**: Reward is a weighted combination of Blicket identification accuracy (0.475), hypotheses eliminated (0.475), and step budget utilization efficiency bonus (0.05). Metrics track exploration inefficiency and format compliance.
 
 The agent interacts with a simulated "Blicket-detecting machine" across two phases:
 1. **Exploration phase** — toggle objects on/off the machine one at a time, observe whether the machine activates, and exit when ready.
@@ -39,15 +39,15 @@ prime eval run CausalExplorerEnv \
 
 | Arg | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
-| `num_objects_range` | tuple[int, int] | `(3, 6)` | Inclusive (min, max) range for number of objects per row. Must satisfy 2 <= lo <= hi <= 10 |
+| `num_objects_range` | tuple[int, int] | `(4, 10)` | Inclusive (min, max) range for number of objects per row. Must satisfy 4 <= lo <= hi <= 10 |
 | `num_examples` | int | `100` | Number of dataset rows to generate |
 | `seed` | int | `42` | RNG seed for reproducible dataset generation |
 
 Per-row configuration is sampled dynamically at dataset generation time:
 - **num_objects**: uniformly sampled from `num_objects_range`
-- **num_blickets**: uniformly sampled from [2, num_objects]
+- **num_blickets**: uniformly sampled from [2, floor(num_objects/2)]
 - **rule_type**: randomly chosen as `"disjunctive"` or `"conjunctive"`
-- **max_num_steps**: computed as `ceil(1.2 * optimal_steps)` where `optimal_steps` comes from a greedy info-gain simulation
+- **max_num_steps**: computed as `ceil(1.5 * optimal_steps)` where `optimal_steps` comes from a greedy info-gain simulation
 
 ### Architecture
 
@@ -102,19 +102,21 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 - `format_history()` — formats the full observation history for the transition message.
 - `compute_optimal_steps()` — simulates a greedy info-gain-maximizing agent to determine the optimal number of exploration steps for a given configuration.
 
-**Reward & metrics:**
-- `blicket_identification()` — primary reward (weight 1.0): per-object accuracy comparing predictions to ground truth.
-- `step_budget_utilization()` — metric: `steps_used / max_steps`. Value of 1.0 means the entire budget was used; lower means the agent exited early.
-- `exploration_inefficiency()` — metric: fraction of parseable actions that were wasted (redundant no-ops + non-contiguous revisits of previously seen configurations). Lower is better.
-- `format_compliance()` — metric: fraction of exploration turns with parseable AND valid actions.
-- `hypotheses_eliminated()` — metric: fraction of hypotheses eliminated relative to the optimal info-gain agent. Higher means more informative exploration.
+**Reward functions:**
+- `blicket_identification()` — reward (weight 0.475): per-object accuracy comparing predictions to ground truth.
+- `hypotheses_eliminated()` — reward (weight 0.475): fraction of hypotheses eliminated relative to the optimal info-gain agent. Higher means more informative exploration.
+- `step_budget_utilization()` — reward (weight 0.05): efficiency bonus gated on perfect Blicket identification. Returns `1 - (steps_used / max_steps)` only when `final_score == 1.0`; otherwise returns 0.
+
+**Metrics:**
+- `exploration_inefficiency()` — fraction of parseable actions that were wasted (redundant no-ops + non-contiguous revisits of previously seen configurations). Lower is better.
+- `format_compliance()` — fraction of exploration turns with parseable AND valid actions.
 
 ### Metrics
 
-| Metric | Meaning |
-| ------ | ------- |
-| `blicket_identification` | Per-object accuracy of Blicket predictions (primary reward, weight 1.0) |
-| `step_budget_utilization` | `steps_used / max_steps` — fraction of step budget consumed |
-| `exploration_inefficiency` | `(redundant + revisits) / parseable_actions` — fraction of wasted actions. Lower is better |
-| `format_compliance` | Fraction of exploration turns with parseable AND valid actions |
-| `hypotheses_eliminated` | Fraction of hypotheses eliminated vs. the optimal greedy info-gain agent. Higher is better |
+| Component | Type | Weight | Meaning |
+| --------- | ---- | ------ | ------- |
+| `blicket_identification` | reward | 0.475 | Per-object accuracy of Blicket predictions |
+| `hypotheses_eliminated` | reward | 0.475 | Fraction of hypotheses eliminated vs. the optimal greedy info-gain agent. Higher is better |
+| `step_budget_utilization` | reward | 0.05 | `1 - (steps_used / max_steps)` when perfect identification; 0 otherwise |
+| `exploration_inefficiency` | metric | — | `(redundant + revisits) / parseable_actions` — fraction of wasted actions. Lower is better |
+| `format_compliance` | metric | — | Fraction of exploration turns with parseable AND valid actions |
