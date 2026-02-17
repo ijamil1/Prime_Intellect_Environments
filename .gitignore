@@ -8,3 +8,4 @@ test_optimal_steps.py
 */*/.prime/
 */*/dist/
 test_dataset_determinism*
+validate_eval_result*
