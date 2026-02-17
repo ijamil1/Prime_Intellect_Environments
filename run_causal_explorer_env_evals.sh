@@ -4,7 +4,8 @@ models=(
   "allenai/olmo-3.1-32b-instruct"
   "meta-llama/llama-3.1-70b-instruct"
   "openai/gpt-5.1-chat"
-  "allenai/olmo-3.1-32b-thinking"
+  "allenai/olmo-3.1-32b-think"
+  "arcee-ai/trinity-mini"
   "Qwen/Qwen3-4B-Thinking-2507"
 )
 
