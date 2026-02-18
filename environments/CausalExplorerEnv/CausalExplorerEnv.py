@@ -7,6 +7,8 @@ import numpy as np
 import verifiers as vf
 from datasets import Dataset
 
+MAX_ANSWER_ATTEMPTS = 3
+
 
 # --- Helper functions ---
 
@@ -78,6 +80,27 @@ def parse_predictions(answer_str: str, num_objects: int) -> dict | None:
     if set(predictions.keys()) != set(range(1, num_objects + 1)):
         return None
     return predictions
+
+
+def parse_response(content: str, phase: str, num_objects: int) -> dict | None:
+    """Extract and parse the agent's action with strict tag validation.
+
+    Rules:
+    - Strips all <reasoning>...</reasoning> blocks first.
+    - Requires exactly one <action>...</action> tag in the remaining text.
+    - Branches by phase: calls parse_action (exploration) or parse_predictions (answer).
+
+    Returns a parsed dict or None if any rule is violated or parsing fails.
+    """
+    stripped = re.sub(r'<reasoning>.*?</reasoning>', '', content, flags=re.DOTALL)
+    matches = re.findall(r'<action>\s*(.*?)\s*</action>', stripped, flags=re.DOTALL)
+    if len(matches) != 1:
+        return None
+    action_str = matches[0].strip()
+    if phase == "exploration":
+        return parse_action(action_str)
+    else:
+        return parse_predictions(action_str, num_objects)
 
 
 def build_system_prompt(num_objects: int, max_num_steps: int) -> str:
@@ -283,6 +306,7 @@ class BlicketEnv(vf.MultiTurnEnv):
         state["machine_state"] = 0
         state["rule_type"] = info["rule_type"]
         state["step_count"] = 0
+        state["exploration_and_answer_count"] = 0
         state["phase"] = "exploration"
         state["history"] = []
         state["num_objects"] = num_objects
@@ -291,6 +315,9 @@ class BlicketEnv(vf.MultiTurnEnv):
         state["parseable_action_count"] = 0
         state["total_action_count"] = 0
         state["redundant_action_count"] = 0
+        state["out_of_range_count"] = 0
+        state["answer_attempt_count"] = 0
+        state["max_answer_attempts"] = MAX_ANSWER_ATTEMPTS
         state["optimal_hypotheses_eliminated"] = info["optimal_hypotheses_eliminated"]
 
         # Initialize hypothesis space: all (blicket_assignment, rule_type) pairs
@@ -305,47 +332,63 @@ class BlicketEnv(vf.MultiTurnEnv):
         return await super().setup_state(state, **kwargs)
 
     async def env_response(self, messages: vf.Messages, state: vf.State) -> vf.Messages:
-        # Extract the most recent assistant message and parse its XML tags
+        # Extract the most recent assistant message
         content = ""
         for msg in reversed(messages):
             if msg["role"] == "assistant":
                 content = str(msg["content"])
                 break
-        parsed = self.parser.parse(content)
-        action_str = parsed.action if parsed.action else ""
+
+        state["exploration_and_answer_count"] += 1
 
         # --- Answer phase: agent has submitted predictions ---
         if state["phase"] == "answer":
-            predictions = parse_predictions(action_str, state["num_objects"])
-            if predictions is not None:
-                correct = sum(
-                    1 for i in range(state["num_objects"])
-                    if predictions.get(i + 1) == bool(state["blickets"][i])
-                )
-                score = correct / state["num_objects"]
-                state['final_score'] = score
-                blicket_list = [str(i + 1) for i in range(state["num_objects"]) if state["blickets"][i] == 1]
-                final_msg = (
-                    f"Your answer has been recorded. "
-                    f"You correctly identified {correct}/{state['num_objects']} objects. "
-                    f"Score: {score:.2f}\n"
-                    f"The Blickets were: [{', '.join(blicket_list)}]\n"
-                    f"The rule was: {state['rule_type']}"
-                )
-            else:
-                blicket_list = [str(i + 1) for i in range(state["num_objects"]) if state["blickets"][i] == 1]
-                final_msg = (
-                    f"Could not parse your answer. Please use the format: 1: True, 2: False, ...\n"
-                    f"The Blickets were: [{', '.join(blicket_list)}]\n"
-                    f"The rule was: {state['rule_type']}"
-                )
-            final_response = [{"role": "user", "content": final_msg}]
-            state["final_env_response"] = final_response
-            return final_response
+            state["answer_attempt_count"] += 1
+            predictions = parse_response(content, "answer", state["num_objects"])
+
+            if predictions is None:
+                # Bad format — retry or exhaust budget
+                if state["answer_attempt_count"] < state["max_answer_attempts"]:
+                    retry_msg = (
+                        f"Could not parse your answer "
+                        f"(attempt {state['answer_attempt_count']}/{state['max_answer_attempts']}). "
+                        f"Use the format: 1: True, 2: False, ... for all {state['num_objects']} objects.\n"
+                        f"<reasoning>Your analysis...</reasoning>\n"
+                        f"<action>1: True, 2: False, ...</action>"
+                    )
+                    return [{"role": "user", "content": retry_msg}]
+                else:
+                    blicket_list = [str(i + 1) for i in range(state["num_objects"]) if state["blickets"][i] == 1]
+                    final_msg = (
+                        f"Maximum answer attempts reached. No valid answer recorded.\n"
+                        f"The Blickets were: [{', '.join(blicket_list)}]\n"
+                        f"The rule was: {state['rule_type']}"
+                    )
+                    state["final_env_response"] = [{"role": "user", "content": final_msg}]
+                    return state["final_env_response"]
+
+            # Valid predictions — score and exit
+            state["parseable_action_count"] += 1
+            correct = sum(
+                1 for i in range(state["num_objects"])
+                if predictions.get(i + 1) == bool(state["blickets"][i])
+            )
+            score = correct / state["num_objects"]
+            state["final_score"] = score
+            blicket_list = [str(i + 1) for i in range(state["num_objects"]) if state["blickets"][i] == 1]
+            final_msg = (
+                f"Your answer has been recorded. "
+                f"You correctly identified {correct}/{state['num_objects']} objects. "
+                f"Score: {score:.2f}\n"
+                f"The Blickets were: [{', '.join(blicket_list)}]\n"
+                f"The rule was: {state['rule_type']}"
+            )
+            state["final_env_response"] = [{"role": "user", "content": final_msg}]
+            return state["final_env_response"]
 
         # --- Exploration phase ---
         state["total_action_count"] += 1
-        action = parse_action(action_str)
+        action = parse_response(content, "exploration", state["num_objects"])
 
         # Handle exit action
         if action is not None and action["type"] == "exit":
@@ -382,6 +425,7 @@ class BlicketEnv(vf.MultiTurnEnv):
                 f"Step {state['step_count']}/{state['max_num_steps']}: "
                 f"Invalid object ID {obj_id}. Must be between 1 and {state['num_objects']}."
             )
+            state["out_of_range_count"] += 1
             if state["step_count"] >= state["max_num_steps"]:
                 state["phase"] = "answer"
                 return [{"role": "user", "content": error_msg + "\n\n"}] + self._build_transition_message(state)
@@ -467,57 +511,61 @@ class BlicketEnv(vf.MultiTurnEnv):
 # --- Reward and metric functions ---
 
 
-async def blicket_identification(completion, state, parser) -> float:
-    """Primary reward: per-object accuracy of Blicket identification."""
-    action_str = parser.parse_answer(completion)
-    if action_str is None:
-        action_str = ''
-    predictions = parse_predictions(action_str, state["num_objects"])
-    ground_truth = state["blickets"]
+async def blicket_identification(state) -> float:
+    """Reward: per-object accuracy of Blicket identification.
 
-    if predictions is None:
-        return 0.0
-
-    correct = sum(
-        1 for i in range(len(ground_truth))
-        if predictions.get(i + 1) == bool(ground_truth[i])
-    )
-    return correct / len(ground_truth)
+    Reads state["final_score"], which is set by env_response when the agent
+    submits a correctly-formatted answer within the allowed retry budget.
+    Returns 0.0 if no valid answer was recorded (exhausted retries or no answer).
+    """
+    return state.get("final_score", 0.0)
 
 
 async def step_budget_utilization(state) -> float:
-    """Reward: efficiency bonus for using fewer steps, gated on perfect identification.
+    """Reward: step-budget utilization, conditioned on identification accuracy.
 
-    Returns 0.0 unless the agent achieved a perfect blicket identification score
-    (final_score == 1.0). When perfect, returns 1 - (steps_used / max_steps),
-    so fewer steps yields a higher reward.
+    Behavior is split by whether the agent achieved perfect identification:
+    - Imperfect (final_score < 1.0): returns step_count / max_steps, rewarding
+      more exploration (the agent is encouraged to use its full budget).
+    - Perfect (final_score == 1.0): returns 1.0 unconditionally, since the agent
+      fully solved the task regardless of how many steps it took.
     """
+    # measures utilization as fraction of exploration steps used relative to max num steps (unless we were completely accurate in which case we return a non-differentiable? 1)
     final_score = state.get("final_score", 0.0)
-    if final_score != 1.0:
-        return 0.0
-    steps_used = state.get("step_count", 0)
+    step_count = state.get("step_count", 0)
     max_steps = state.get("max_num_steps", 1)
-    return 1.0 - (steps_used / max_steps)
+    if final_score != 1.0:
+        #if we didn't correctly identify blickets, we want to encourage more exploration by rewarding more steps
+        return step_count/max_steps
+    return 1.0
 
 
-async def exploration_inefficiency(state) -> float:
-    """Metric: fraction of parseable actions that were wasted.
+async def exploration_efficiency(state) -> float:
+    """Reward: fraction of parseable actions that were productive.
 
-    Counts two disjoint sources of waste relative to parseable actions:
-    1. Redundant actions — no-ops where the object was already in the
-       requested state (blocked by env_response, not added to history).
-    2. Non-contiguous revisits — valid actions that reproduce a machine
+    Counts three disjoint sources of waste relative to parseable exploration actions:
+    1. Redundant actions — no-ops where the object was already in the requested
+       state (not added to history).
+    2. Out-of-range object IDs — syntactically valid toggles referencing an
+       object number outside [1, num_objects].
+    3. Non-contiguous revisits — valid toggles that reproduce a machine
        configuration already seen earlier in the history.
 
-    Returns (redundant + revisits) / parseable_action_count, a value in
-    [0, 1].  Lower is better (0 = no wasted actions).  Returns 0.0 when
-    no parseable actions were taken.
+    Returns 1 - (wasted / parseable_action_count), a value in [0, 1].
+    Higher is better (1.0 = no wasted actions). Returns 0.0 when no parseable
+    actions were taken (avoids division by zero).
+
+    Note: parseable_action_count includes the successful answer submission,
+    so a perfect episode with no exploration waste scores 1.0.
     """
-    parseable = state.get("parseable_action_count", 0)
-    if parseable == 0:
-        return 0.0
+    #measures efficiency as the fraction of parseable actions that were to unique object state
 
     redundant = state.get("redundant_action_count", 0)
+    parseable = state.get("parseable_action_count", 0) #parseable ~=~ out of range + redundant + non_contiguous revisit + unique
+    out_of_range = state.get("out_of_range_count", 0)
+
+    if parseable == 0:
+        return 0
 
     # Count non-contiguous revisits from history
     history = state.get("history", [])
@@ -529,16 +577,25 @@ async def exploration_inefficiency(state) -> float:
             non_contiguous += 1
         seen.add(config)
 
-    return float(redundant + non_contiguous) / parseable
+    return 1 - (float(redundant + out_of_range + non_contiguous) / parseable)
 
 
 async def format_compliance(state) -> float:
-    """Metric: fraction of exploration turns with parseable AND valid actions."""
-    total = state.get("total_action_count", 0)
+    """Reward: fraction of all turns (exploration + answer) with parseable actions.
+
+    Denominator is exploration_and_answer_count — every env_response call across
+    both phases. Numerator is parseable_action_count, which includes: parseable
+    exploration actions (exit, valid toggles, out-of-range toggles, redundant toggles)
+    plus the single successful answer submission.
+
+    Returns parseable / total, in [0, 1]. Higher is better. Returns 1.0 when
+    no turns were taken (vacuously compliant).
+    """
+    total = state.get("exploration_and_answer_count", 0)
     if total == 0:
         return 1.0
-    valid = state.get("valid_action_count", 0)
-    return valid / total
+    parseable = state.get("parseable_action_count", 0)
+    return parseable / total
 
 
 async def hypotheses_eliminated(state) -> float:
@@ -635,15 +692,13 @@ def load_environment(
 
     # Build rubric
     rubric = vf.Rubric(
-        funcs=[blicket_identification, hypotheses_eliminated, step_budget_utilization],
-        weights=[0.45, 0.45, 0.1],
+        funcs=[blicket_identification, step_budget_utilization, exploration_efficiency, format_compliance, hypotheses_eliminated],
+        weights=[0.3, 0.1, 0.25, 0.1, 0.25],
         parser=parser,
     )
-    rubric.add_metric(exploration_inefficiency)
-    rubric.add_metric(format_compliance)
 
-    # max_turns = max possible steps across all rows + 2 (transition + answer)
-    max_turns = global_max_steps + 2
+    # max_turns = max possible steps + 1 (transition) + MAX_ANSWER_ATTEMPTS (answer retries)
+    max_turns = global_max_steps + 1 + MAX_ANSWER_ATTEMPTS
 
     return BlicketEnv(
         dataset=dataset,

@@ -9,3 +9,4 @@ test_optimal_steps.py
 */*/dist/
 test_dataset_determinism*
 validate_eval_result*
+tests*
