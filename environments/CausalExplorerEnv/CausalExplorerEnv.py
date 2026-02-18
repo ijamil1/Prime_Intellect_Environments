@@ -126,25 +126,31 @@ RULES:
 - After each action, you will observe which objects are on the machine and whether the machine is ON or OFF.
 - When you have gathered enough information to determine which objects are Blickets, you can exit the exploration phase to submit your answer.
 
-ACTION FORMAT (use XML tags):
+RESPONSE FORMAT (strict — violations count as wasted steps):
 
-During exploration, respond with:
-<reasoning>Your reasoning about the decision to place an on object on the machine...</reasoning>
-<action>put N on</action>
-or
-<reasoning>Your reasoning to remove an object from the machines...</reasoning>
-<action>put N off</action>
-Where N is an object number in ({object_list}).
+Every response must contain exactly one <reasoning> block followed by exactly one <action> block. No other XML tags are permitted. The <action> tag must not appear inside the <reasoning> block.
 
-To exit the exploration phase and enter the answer phase, respond with: 
-<reasoning>Your reasoning for stopping...</reasoning>
-<action>exit</action>
+During exploration, your response must be one of these three forms:
 
-During the answer phase, respond with:
-<reasoning>Your analysis of which objects are Blickets...</reasoning>
-<action>1: True, 2: False, ...</action>
+  Place an object on the machine:
+    <reasoning>Your reasoning here.</reasoning>
+    <action>put N on</action>
 
-Where True means the object is a Blicket and False means it is not. You must provide a prediction for every object.
+  Remove an object from the machine:
+    <reasoning>Your reasoning here.</reasoning>
+    <action>put N off</action>
+
+  Exit exploration and move to the answer phase:
+    <reasoning>Your reasoning for stopping here.</reasoning>
+    <action>exit</action>
+
+Where N is a single integer in ({object_list}). Do not include any text outside the XML tags.
+
+During the answer phase, your response must be exactly:
+    <reasoning>Your analysis of which objects are Blickets.</reasoning>
+    <action>1: True, 2: False, 3: True, ...</action>
+
+You must include a True or False prediction for every object ({object_list}), separated by commas, in ascending order by object number. True means the object is a Blicket; False means it is not.
 
 STRATEGY: Plan your experiments carefully to gather maximum information efficiently since you are limited by the number of actions you can take. \
 Reason about what actions will give you the most information and what each observation tells you about the hidden rule and which objects might be Blickets."""
@@ -349,12 +355,19 @@ class BlicketEnv(vf.MultiTurnEnv):
             if predictions is None:
                 # Bad format — retry or exhaust budget
                 if state["answer_attempt_count"] < state["max_answer_attempts"]:
+                    object_list = ", ".join(str(i) for i in range(1, state["num_objects"] + 1))
+                    example = ", ".join(f"{i}: True" if i % 2 == 1 else f"{i}: False" for i in range(1, state["num_objects"] + 1))
                     retry_msg = (
                         f"Could not parse your answer "
                         f"(attempt {state['answer_attempt_count']}/{state['max_answer_attempts']}). "
-                        f"Use the format: 1: True, 2: False, ... for all {state['num_objects']} objects.\n"
-                        f"<reasoning>Your analysis...</reasoning>\n"
-                        f"<action>1: True, 2: False, ...</action>"
+                        f"You have {state['max_answer_attempts'] - state['answer_attempt_count']} attempt(s) remaining.\n\n"
+                        f"Your response must contain exactly one <reasoning> block and exactly one <action> block. "
+                        f"The <action> block must NOT appear inside <reasoning>. "
+                        f"The action must list every object ({object_list}) with a True or False prediction, "
+                        f"comma-separated, in ascending order.\n\n"
+                        f"Example of correct format:\n"
+                        f"<reasoning>Your analysis of which objects are Blickets.</reasoning>\n"
+                        f"<action>{example}</action>"
                     )
                     return [{"role": "user", "content": retry_msg}]
                 else:
@@ -405,7 +418,7 @@ class BlicketEnv(vf.MultiTurnEnv):
             # Unparseable action
             error_msg = (
                 f"Step {state['step_count']}/{state['max_num_steps']}: "
-                f"Invalid action format. Expected <action>put N on</action>, "
+                f"Invalid action format. Every response must contain exactly one <reasoning> block followed by exactly one <action> block. No other XML tags are permitted. The <action> tag must not appear inside the <reasoning> block. Expected one of: <action>put N on</action>, "
                 f"<action>put N off</action>, or <action>exit</action>, "
                 f"where N is an object number between 1 and {state['num_objects']}."
             )
