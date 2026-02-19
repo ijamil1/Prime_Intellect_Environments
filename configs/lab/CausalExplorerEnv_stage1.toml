@@ -1,0 +1,33 @@
+# configs/lab/CausalExplorerEnv_stage1.toml
+# Stage 1: exploration-focused curriculum
+# Reward blicket_identification = 0.0 — removes the sparse terminal signal.
+# The agent learns to explore efficiently and eliminate hypotheses before
+# being asked to produce correct answers. Use the checkpoint from this run
+# as checkpoint_id in CausalExplorerEnv_stage2.toml.
+model = "allenai/OLMo-3-7B-Instruct"
+max_steps = 200
+batch_size = 300
+rollouts_per_example = 12
+learning_rate = 3e-5
+
+[buffer]
+online_difficulty_filtering = true
+easy_threshold = 0.9
+hard_threshold = 0.4              # relaxed vs. blended rubric — exploration rewards distribute differently
+easy_fraction = 0.05
+hard_fraction = 0.25
+
+[sampling]
+max_tokens = 5000
+
+[[env]]
+id = "irfanjamil/CausalExplorerEnv"
+args = { num_examples = 500, rubric_weights = { blicket_identification = 0.0, step_budget_utilization = 0.15, exploration_efficiency = 0.35, format_compliance = 0.15, hypotheses_eliminated = 0.35 } }
+
+[eval]
+interval = 50
+
+[[eval.env]]
+id = "irfanjamil/CausalExplorerEnv"
+num_examples = 50
+rollouts_per_example = 3
