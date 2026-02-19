@@ -657,7 +657,6 @@ def load_environment(
     num_objects_range: tuple[int, int] = (4, 10),
     num_examples: int = 100,
     seed: int = 42,
-    rubric_weights: dict | None = None,
 ) -> vf.Environment:
     """Load the CausalExplorerEnv (Blicket machine) environment.
 
@@ -669,12 +668,6 @@ def load_environment(
         num_objects_range: Inclusive (min, max) range for number of objects per row.
         num_examples: Number of dataset rows to generate.
         seed: RNG seed for reproducible dataset generation.
-        rubric_weights: Optional dict overriding any subset of the default rubric
-            component weights. Keys must be a subset of:
-            {blicket_identification, step_budget_utilization, exploration_efficiency,
-            format_compliance, hypotheses_eliminated}. Weights are merged with
-            defaults and then re-normalized to sum to 1.0, so you can set a
-            component to 0.0 to disable it entirely.
     """
 
     # Validate ranges
@@ -733,32 +726,10 @@ def load_environment(
     # Build parser (shared between env and rubric)
     parser = vf.XMLParser(fields=["reasoning", "action"], answer_field="action")
 
-    # Build rubric — merge any caller-supplied weight overrides with defaults,
-    # then re-normalize so the weights always sum to 1.0.
-
-    _DEFAULT_RUBRIC_WEIGHTS = {
-        "blicket_identification": 0.3,
-        "step_budget_utilization": 0.1,
-        "exploration_efficiency": 0.25,
-        "format_compliance": 0.1,
-        "hypotheses_eliminated": 0.25,
-    }
-
-    if rubric_weights:
-        merged = rubric_weights
-        assert set(list(merged.keys())) == set(["blicket_identification", "step_budget_utilization", "exploration_efficiency", "format_compliance", "hypotheses_eliminated"])
-        assert sum(list(merged.values())) == 1.0
-    else:
-        merged = _DEFAULT_RUBRIC_WEIGHTS
+    # Build rubric
     rubric = NormalizedRubric(
         funcs=[blicket_identification, step_budget_utilization, exploration_efficiency, format_compliance, hypotheses_eliminated],
-        weights=[
-            merged["blicket_identification"],
-            merged["step_budget_utilization"],
-            merged["exploration_efficiency"],
-            merged["format_compliance"],
-            merged["hypotheses_eliminated"],
-        ],
+        weights=[0.3, 0.1, 0.25, 0.1, 0.25],
         parser=parser,
     )
 
