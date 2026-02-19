@@ -1,10 +1,16 @@
 # configs/lab/CausalExplorerEnv.toml
 model = "allenai/OLMo-3-7B-Instruct"
 max_steps = 256
-batch_size = 120
+batch_size = 600
 rollouts_per_example = 12
 learning_rate = 3e-5
 
+[buffer]
+online_difficulty_filtering = true
+easy_threshold = 0.95             # Examples scored above 0.95 are "easy"
+hard_threshold = 0.6              # Examples scored below 0.2 are "hard"
+easy_fraction = 0.05
+hard_fraction = 0.25
 
 [sampling]
 max_tokens = 5000
@@ -12,3 +18,12 @@ max_tokens = 5000
 [[env]]
 id = "irfanjamil/CausalExplorerEnv"
 args = { num_examples = 500 }
+
+[eval]
+interval = 50                    # Evaluate every 50 steps
+eval_base_model = false            # does not include base model comparison
+
+[[eval.env]]
+id = "irfanjamil/CausalExplorerEnv"
+num_examples = 50
+rollouts_per_example = 3
