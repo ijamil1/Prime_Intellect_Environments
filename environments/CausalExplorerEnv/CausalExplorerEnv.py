@@ -639,8 +639,8 @@ class NormalizedRubric(vf.Rubric):
     of how spread the rewards are, giving the trainer a consistent signal.
     """
 
-    async def score_group(self, states, score_sem):
-        await super().score_group(states, score_sem)
+    async def score_group(self, states, *args, **kwargs):
+        await super().score_group(states, *args, **kwargs)
         advantages = [s["advantage"] for s in states]
         # advantages are already mean-subtracted, so std = RMS
         std = (sum(a ** 2 for a in advantages) / len(advantages)) ** 0.5
