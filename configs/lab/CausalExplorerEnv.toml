@@ -8,21 +8,21 @@ learning_rate = 3e-5
 [buffer]
 online_difficulty_filtering = true
 easy_threshold = 0.95             # Examples scored above 0.95 are "easy"
-hard_threshold = 0.6              # Examples scored below 0.2 are "hard"
+hard_threshold = 0.37             # Examples scored below 0.37 are "hard"
 easy_fraction = 0.05
-hard_fraction = 0.25
+hard_fraction = 0.2
 
 [sampling]
 max_tokens = 5000
 
 [[env]]
-id = "irfanjamil/CausalExplorerEnv"
+id = "irfanjamil/CausalExplorerEnv@0.2.6"
 args = { num_examples = 250 }
 
 [eval]
-interval = 10                    # Evaluate every 50 steps
+interval = 10                    # Evaluate every 10 steps
 
 [[eval.env]]
-id = "irfanjamil/CausalExplorerEnv"
+id = "irfanjamil/CausalExplorerEnv@0.2.6"
 num_examples = 50
 rollouts_per_example = 3

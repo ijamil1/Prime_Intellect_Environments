@@ -11,7 +11,7 @@ Based on [Do LLMs Think Like Scientists? Causal Reasoning and Hypothesis Testing
 ### Task
 - **Type**: multi-turn
 - **Parser**: XMLParser (fields: `reasoning`, `action`)
-- **Rubric overview**: Reward is an equal-weighted combination of five components (0.2 each): Blicket identification accuracy, step budget utilization, exploration efficiency, format compliance, and hypotheses eliminated.
+- **Rubric overview**: Reward is distributed across Blicket identification accuracy (0.45), hypothesis elimination efficiency (0.45), and format compliance (0.1).
 
 The agent interacts with a simulated "Blicket-detecting machine" across two phases:
 1. **Exploration phase** — toggle objects on/off the machine one at a time, observe whether the machine activates, and exit when ready.
@@ -136,8 +136,8 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 
 | Component | Weight | Meaning |
 | --------- | ------ | ------- |
-| `blicket_identification` | 0.3 | Per-object accuracy of Blicket predictions |
-| `step_budget_utilization` | 0.1 | `step_count / max_steps` when imperfect; `1.0` when perfect |
-| `exploration_efficiency` | 0.25 | `1 - (wasted / parseable)` — fraction of productive actions. Higher is better |
+| `blicket_identification` | 0.45 | Per-object accuracy of Blicket predictions |
+| `step_budget_utilization` | 0.0 | — |
+| `exploration_efficiency` | 0.0 | — |
 | `format_compliance` | 0.1 | Parseable actions across all turns (both phases). Higher is better |
-| `hypotheses_eliminated` | 0.25 | Fraction of hypotheses eliminated vs. the optimal greedy info-gain agent. Higher is better |
+| `hypotheses_eliminated` | 0.45 | Fraction of hypotheses eliminated vs. the optimal greedy info-gain agent. Higher is better |
