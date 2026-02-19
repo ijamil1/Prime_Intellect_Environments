@@ -1,8 +1,10 @@
 # configs/lab/CausalExplorerEnv.toml
 model = "allenai/OLMo-3-7B-Instruct"
-max_steps = 64
+max_steps = 256
 batch_size = 120
 rollouts_per_example = 12
+learning_rate = 3e-5
+
 
 [sampling]
 max_tokens = 5000

@@ -627,6 +627,30 @@ async def hypotheses_eliminated(state) -> float:
     return min(1.0, eliminated / optimal)
 
 
+# --- Normalized rubric ---
+
+
+class NormalizedRubric(vf.Rubric):
+    """Rubric that normalizes advantages by std within each group after scoring.
+
+    The base Rubric only subtracts the group mean. When rewards cluster in a
+    narrow range the resulting advantages are tiny (~±0.05), producing near-zero
+    gradients. Dividing by the group std makes advantages unit-scale regardless
+    of how spread the rewards are, giving the trainer a consistent signal.
+    """
+
+    async def score_group(self, states, score_sem):
+        await super().score_group(states, score_sem)
+        advantages = [s["advantage"] for s in states]
+        # advantages are already mean-subtracted, so std = RMS
+        std = (sum(a ** 2 for a in advantages) / len(advantages)) ** 0.5
+        for s in states:
+            s["advantage"] = s["advantage"] / (std + 1e-8)
+            for t in s["trajectory"]:
+                if t["advantage"] is not None:
+                    t["advantage"] = t["advantage"] / (std + 1e-8)
+
+
 # --- Entry point ---
 
 
@@ -704,7 +728,7 @@ def load_environment(
     parser = vf.XMLParser(fields=["reasoning", "action"], answer_field="action")
 
     # Build rubric
-    rubric = vf.Rubric(
+    rubric = NormalizedRubric(
         funcs=[blicket_identification, step_budget_utilization, exploration_efficiency, format_compliance, hypotheses_eliminated],
         weights=[0.3, 0.1, 0.25, 0.1, 0.25],
         parser=parser,

@@ -10,3 +10,5 @@ test_optimal_steps.py
 test_dataset_determinism*
 validate_eval_result*
 tests*
+docs/
+rollout_rewards.sh
