@@ -1,0 +1,25 @@
+# configs/lab/CausalExplorerEnv.toml
+checkpoint_id = "uqnbzka9hev7bhow73xg2v28" #loading from last checkpoint saved for run z9itq4ewkaivy0glylewv7w7
+model = "allenai/OLMo-3-7B-Instruct"
+max_steps = 170 #failed at step 330/500
+batch_size = 120
+rollouts_per_example = 12
+learning_rate = 3e-5
+
+[buffer]
+online_difficulty_filtering = true
+
+[sampling]
+max_tokens = 5000
+
+[[env]]
+id = "irfanjamil/CausalExplorerEnv@0.2.3"
+args = { num_examples = 250 }
+
+[eval]
+interval = 10                    # Evaluate every 10 steps
+
+[[eval.env]]
+id = "irfanjamil/CausalExplorerEnv@0.2.3"
+num_examples = 50
+rollouts_per_example = 3
