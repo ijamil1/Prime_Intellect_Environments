@@ -1,7 +1,7 @@
 # configs/lab/CausalExplorerEnv.toml
 checkpoint_id = "uqnbzka9hev7bhow73xg2v28" #loading from last checkpoint saved for run z9itq4ewkaivy0glylewv7w7
 model = "allenai/OLMo-3-7B-Instruct"
-max_steps = 170 #failed at step 330/500
+max_steps = 500 #failed at step 330/500 so resuming from checkpoint at step 325
 batch_size = 120
 rollouts_per_example = 12
 learning_rate = 3e-5
