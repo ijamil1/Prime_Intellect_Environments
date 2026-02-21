@@ -210,7 +210,7 @@ def compute_optimal_steps(
     num_objects: int,
     blickets: list[int],
     rule_type: str,
-    num_samples: int = 50,
+    num_samples: int = 10,
     seed: int = 0,
 ) -> float:
     """Compute average exploration steps for a greedy info-gain-maximizing agent.
@@ -746,7 +746,7 @@ def load_environment(num_examples: int = 250) -> vf.Environment:
     num_examples = max(100, min(num_examples, 500))
 
     # --- Training + eval part 1 (sampled together to guarantee no overlap) ---
-    pool = sample_unique_configs((4, 10), num_examples + 50, seed=42)
+    pool = sample_unique_configs((4, 10), num_examples + 80, seed=42)
     train_configs = pool[:num_examples]
     eval_configs_part1 = pool[num_examples:]
 
@@ -754,8 +754,7 @@ def load_environment(num_examples: int = 250) -> vf.Environment:
     dataset = Dataset.from_list(train_rows)
 
     # --- Eval part 2: different n range, automatically distinct from training ---
-    eval_configs_part2 = sample_unique_configs((11, 15), 50, seed=42)
-
+    eval_configs_part2 = sample_unique_configs((11, 15), 20, seed=42)
     eval_rows, eval_max_steps = build_rows(eval_configs_part1 + eval_configs_part2)
     eval_dataset = Dataset.from_list(eval_rows)
 
