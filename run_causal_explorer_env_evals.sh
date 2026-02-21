@@ -2,9 +2,6 @@
 
 models=(
   "allenai/olmo-3.1-32b-instruct"
-  "meta-llama/llama-3.1-70b-instruct"
-  "openai/gpt-5.1-chat"
-  "qwen/qwen3-30b-a3b-instruct-2507"
   "allenai/olmo-3-7b-instruct"
 )
 
@@ -16,7 +13,7 @@ for model in "${models[@]}"; do
     echo "Skipping $model (already has eval results for $short_name)"
   else
     echo "Running eval with model: $model"
-    prime eval run CausalExplorerEnv -n 50 -r 3 -a '{"num_objects_range":[4,10], "num_examples": 50}' -m "$model"
+    prime eval run irfanjamil/CausalExplorerEnv -n 100 -r 3 -m "$model"
   fi
   echo ""
 done
