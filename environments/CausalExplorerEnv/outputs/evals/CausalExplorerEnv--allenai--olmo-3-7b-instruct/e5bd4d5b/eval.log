@@ -1,0 +1,9 @@
+2026-02-21 16:13:17 - verifiers.workers.server.env_server.ZMQEnvServer - INFO - Initializing ZMQEnvServer to serve CausalExplorerEnv (env_args={}, extra_env_kwargs={})
+2026-02-21 16:13:17 - verifiers.workers.server.env_server.ZMQEnvServer - INFO - Loading environment CausalExplorerEnv with env_args={}
+2026-02-21 16:13:17 - verifiers.utils.env_utils - INFO - Loading environment: CausalExplorerEnv
+2026-02-21 16:13:17 - verifiers.utils.env_utils - INFO - Using default args: num_examples=250
+2026-02-21 16:19:56 - verifiers.utils.env_utils - INFO - Successfully loaded environment 'CausalExplorerEnv'
+2026-02-21 16:19:56 - verifiers.workers.server.env_server.ZMQEnvServer - INFO - ZMQEnvServer started on tcp://127.0.0.1:54258
+2026-02-21 16:45:42 - verifiers.workers.server.env_server.ZMQEnvServer - INFO - Received signal SIGTERM, initiating graceful shutdown
+2026-02-21 16:45:43 - verifiers.workers.server.env_server.ZMQEnvServer - INFO - Stop event received, shutting down gracefully
+2026-02-21 16:45:43 - verifiers.workers.server.env_server.ZMQEnvServer - INFO - Environment server shut down
