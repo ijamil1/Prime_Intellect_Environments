@@ -2,7 +2,7 @@ import hashlib
 import json
 import math
 import re
-from itertools import combinations, product
+from itertools import product
 
 import numpy as np
 import verifiers as vf
@@ -655,28 +655,41 @@ class NormalizedRubric(vf.Rubric):
 # --- Dataset helpers ---
 
 
-def enumerate_universe(num_objects_range: tuple[int, int]) -> list[dict]:
-    """Enumerate all unique (n_obj, rule, blickets) configurations for a given object range.
+def sample_unique_configs(
+    num_objects_range: tuple[int, int],
+    n: int,
+    seed: int = 42,
+) -> list[dict]:
+    """Sample n unique (n_obj, rule, blickets) configs via rejection sampling.
 
-    For each n in [lo, hi], b ranges over [2, floor(n/2)], with 2 rule types
-    and C(n, b) blicket assignments — giving 2268 unique configs for [4, 10].
+    Uses a master RNG seeded with `seed` to draw configs; duplicates (same
+    n_obj, rule, and blicket_indices) are rejected until n distinct configs
+    are collected.
     """
-    configs = []
+    rng = np.random.default_rng(seed)
     lo, hi = num_objects_range
-    for n_obj in range(lo, hi + 1):
+    seen: set[tuple] = set()
+    configs = []
+    while len(configs) < n:
+        n_obj = int(rng.integers(lo, hi + 1))
         max_b = n_obj // 2
-        for b in range(2, max_b + 1):
-            for rule in ["disjunctive", "conjunctive"]:
-                for idxs in combinations(range(n_obj), b):
-                    blickets = [0] * n_obj
-                    for i in idxs:
-                        blickets[i] = 1
-                    configs.append({
-                        "n_obj": n_obj,
-                        "rule": rule,
-                        "blickets": blickets,
-                        "blicket_indices": list(idxs),
-                    })
+        b = int(rng.integers(2, max_b + 1))
+        rule = str(rng.choice(["disjunctive", "conjunctive"]))
+        blicket_indices = tuple(sorted(
+            rng.choice(n_obj, size=b, replace=False).tolist()
+        ))
+        key = (n_obj, rule, blicket_indices)
+        if key not in seen:
+            seen.add(key)
+            blickets = [0] * n_obj
+            for idx in blicket_indices:
+                blickets[idx] = 1
+            configs.append({
+                "n_obj": n_obj,
+                "rule": rule,
+                "blickets": blickets,
+                "blicket_indices": list(blicket_indices),
+            })
     return configs
 
 
@@ -720,39 +733,28 @@ def load_environment(num_examples: int = 250) -> vf.Environment:
     """Load the CausalExplorerEnv (Blicket machine) environment.
 
     Training and eval datasets are fixed and fully distinct from each other.
-    The training dataset is drawn from the exhaustively enumerated universe of
-    unique (n_obj, rule, blickets) configurations for n ∈ [4, 10] (2268 total),
-    shuffled with seed=42. The eval dataset (100 fixed examples) consists of:
-      - First 50: configs at positions [num_examples:num_examples+50] of the same
-        shuffled [4,10] universe (always immediately after the training slice, so
-        guaranteed distinct from training for any value of num_examples).
-      - Second 50: configs from n ∈ [11, 15], shuffled with seed=42.
+    Both are generated via rejection sampling to ensure uniqueness:
+      - Training + eval part 1: (num_examples + 50) unique configs from n ∈ [4, 10],
+        sampled with seed=42. First num_examples → training; last 50 → eval part 1
+        (guaranteed non-overlapping for any valid num_examples).
+      - Eval part 2: 50 unique configs from n ∈ [11, 15], sampled with seed=42
+        (distinct from training by construction due to disjoint n range).
 
     Args:
         num_examples: Number of training examples (clamped to [100, 500]).
     """
     num_examples = max(100, min(num_examples, 500))
 
-    # --- Training dataset ---
-    # Enumerate the full [4,10] universe (2268 unique configs), shuffle with seed=42
-    train_universe = enumerate_universe((4, 10))
-    rng = np.random.default_rng(42)
-    order = rng.permutation(len(train_universe))
-    train_universe_shuffled = [train_universe[i] for i in order]
+    # --- Training + eval part 1 (sampled together to guarantee no overlap) ---
+    pool = sample_unique_configs((4, 10), num_examples + 50, seed=42)
+    train_configs = pool[:num_examples]
+    eval_configs_part1 = pool[num_examples:]
 
-    train_configs = train_universe_shuffled[:num_examples]
     train_rows, train_max_steps = build_rows(train_configs)
     dataset = Dataset.from_list(train_rows)
 
-    # --- Eval dataset ---
-    # Part 1: next 50 from the [4,10] shuffled universe (immediately after training slice)
-    eval_configs_part1 = train_universe_shuffled[num_examples:num_examples + 50]
-
-    # Part 2: 50 configs from [11,15] universe, shuffled with seed=42
-    eval_universe = enumerate_universe((11, 15))
-    eval_rng = np.random.default_rng(42)
-    eval_order = eval_rng.permutation(len(eval_universe))
-    eval_configs_part2 = [eval_universe[i] for i in eval_order[:50]]
+    # --- Eval part 2: different n range, automatically distinct from training ---
+    eval_configs_part2 = sample_unique_configs((11, 15), 50, seed=42)
 
     eval_rows, eval_max_steps = build_rows(eval_configs_part1 + eval_configs_part2)
     eval_dataset = Dataset.from_list(eval_rows)

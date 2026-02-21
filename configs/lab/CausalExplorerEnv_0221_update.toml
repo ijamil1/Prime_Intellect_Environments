@@ -12,14 +12,14 @@ online_difficulty_filtering = true
 max_tokens = 5000
 
 [[env]]
-id = "irfanjamil/CausalExplorerEnv@0.2.4"
+id = "irfanjamil/CausalExplorerEnv@0.2.5"
 args = { num_examples = 250 }
 
 [eval]
 interval = 500                    # Evaluate every 500 steps
 
 [[eval.env]]
-id = "irfanjamil/CausalExplorerEnv@0.2.4"
+id = "irfanjamil/CausalExplorerEnv@0.2.5"
 num_examples = 100
 rollouts_per_example = 3
 
