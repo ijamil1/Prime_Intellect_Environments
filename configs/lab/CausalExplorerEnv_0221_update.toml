@@ -19,7 +19,7 @@ args = { num_examples = 250 }
 interval = 500                    # Evaluate every 500 steps
 
 [[eval.env]]
-id = "irfanjamil/CausalExplorerEnv@0.2.9"
+id = "irfanjamil/CausalExplorerEnv@0.3.0"
 num_examples = 100
 rollouts_per_example = 3
 
