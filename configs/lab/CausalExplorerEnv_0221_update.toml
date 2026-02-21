@@ -9,7 +9,7 @@ learning_rate = 3e-5
 online_difficulty_filtering = true
 
 [sampling]
-max_tokens = 5000
+max_tokens = 7000
 
 [[env]]
 id = "irfanjamil/CausalExplorerEnv@0.2.7"
