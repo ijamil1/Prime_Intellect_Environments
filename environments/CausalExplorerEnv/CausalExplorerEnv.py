@@ -1,7 +1,8 @@
+import hashlib
 import json
 import math
 import re
-from itertools import product
+from itertools import combinations, product
 
 import numpy as np
 import verifiers as vf
@@ -651,77 +652,110 @@ class NormalizedRubric(vf.Rubric):
                     t["advantage"] = t["advantage"] / (std + 1e-8)
 
 
-# --- Entry point ---
+# --- Dataset helpers ---
 
-def load_environment(
-    num_objects_range: tuple[int, int] = (4, 10),
-    num_examples: int = 100,
-    seed: int = 42,
-) -> vf.Environment:
-    """Load the CausalExplorerEnv (Blicket machine) environment.
 
-    Each dataset row is generated with a unique configuration sampled from
-    the provided ranges, producing a diverse evaluation across varying
-    numbers of objects, blickets, step budgets, and rule types.
+def enumerate_universe(num_objects_range: tuple[int, int]) -> list[dict]:
+    """Enumerate all unique (n_obj, rule, blickets) configurations for a given object range.
 
-    Args:
-        num_objects_range: Inclusive (min, max) range for number of objects per row.
-        num_examples: Number of dataset rows to generate.
-        seed: RNG seed for reproducible dataset generation.
+    For each n in [lo, hi], b ranges over [2, floor(n/2)], with 2 rule types
+    and C(n, b) blicket assignments — giving 2268 unique configs for [4, 10].
     """
+    configs = []
+    lo, hi = num_objects_range
+    for n_obj in range(lo, hi + 1):
+        max_b = n_obj // 2
+        for b in range(2, max_b + 1):
+            for rule in ["disjunctive", "conjunctive"]:
+                for idxs in combinations(range(n_obj), b):
+                    blickets = [0] * n_obj
+                    for i in idxs:
+                        blickets[i] = 1
+                    configs.append({
+                        "n_obj": n_obj,
+                        "rule": rule,
+                        "blickets": blickets,
+                        "blicket_indices": list(idxs),
+                    })
+    return configs
 
-    # Validate ranges
-    obj_lo, obj_hi = num_objects_range
-    if not (4 <= obj_lo <= obj_hi <= 10):
-        raise ValueError(
-            f"num_objects_range must satisfy 4 <= lo <= hi <= 10, got {num_objects_range}"
-        )
 
-    # Generate diverse dataset rows
-    rng = np.random.default_rng(seed)
+def build_rows(configs: list[dict]) -> tuple[list[dict], int]:
+    """Build dataset rows from a list of configs, returning rows and global max_steps.
+
+    Each row's compute_optimal_steps seed is derived deterministically from the
+    config contents via MD5, so seeds are stable regardless of list ordering.
+    """
     rows = []
     global_max_steps = 0
-
-    for _ in range(num_examples):
-        # Sample num_objects
-        n_obj = int(rng.integers(obj_lo, obj_hi + 1))
-
-        # Auto-derive num_blickets: [2, n_obj]
-        n_blick = int(rng.integers(2, int(n_obj/2)+1))
-
-        # Sample rule type for this row
-        row_rule = rng.choice(["disjunctive", "conjunctive"])
-
-        # Assign blickets at dataset generation time
-        blicket_indices = sorted(rng.choice(n_obj, size=n_blick, replace=False).tolist())
-        blickets = [0] * n_obj
-        for idx in blicket_indices:
-            blickets[idx] = 1
-
-        # Compute optimal exploration steps via greedy info-gain simulation,
-        # then give the agent a 20% budget cushion
-        row_seed = int(rng.integers(0, 2**31))
-        optimal_steps, hyps_elim_by_opt_agent = compute_optimal_steps(n_obj, blickets, row_rule, seed=row_seed)
+    for cfg in configs:
+        seed_str = f"{cfg['n_obj']}_{cfg['rule']}_{cfg['blicket_indices']}"
+        row_seed = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
+        optimal_steps, hyps_elim = compute_optimal_steps(
+            cfg["n_obj"], cfg["blickets"], cfg["rule"], seed=row_seed
+        )
         max_steps = max(1, math.ceil(1.5 * optimal_steps))
         global_max_steps = max(global_max_steps, max_steps)
 
-        # Build per-row prompt with embedded system prompt
-        system_msg = {"role": "system", "content": build_system_prompt(n_obj, max_steps)}
-        user_msg = {"role": "user", "content": build_initial_message(n_obj)}
+        system_msg = {"role": "system", "content": build_system_prompt(cfg["n_obj"], max_steps)}
+        user_msg = {"role": "user", "content": build_initial_message(cfg["n_obj"])}
 
         rows.append({
             "prompt": [system_msg, user_msg],
             "info": json.dumps({
-                "num_objects": n_obj,
-                "num_blickets": n_blick,
+                "num_objects": cfg["n_obj"],
+                "num_blickets": len(cfg["blicket_indices"]),
                 "max_num_steps": max_steps,
-                "rule_type": row_rule,
-                "blickets": blickets,
-                "optimal_hypotheses_eliminated": hyps_elim_by_opt_agent
+                "rule_type": cfg["rule"],
+                "blickets": cfg["blickets"],
+                "optimal_hypotheses_eliminated": hyps_elim,
             }),
         })
+    return rows, global_max_steps
 
-    dataset = Dataset.from_list(rows)
+
+# --- Entry point ---
+
+def load_environment(num_examples: int = 250) -> vf.Environment:
+    """Load the CausalExplorerEnv (Blicket machine) environment.
+
+    Training and eval datasets are fixed and fully distinct from each other.
+    The training dataset is drawn from the exhaustively enumerated universe of
+    unique (n_obj, rule, blickets) configurations for n ∈ [4, 10] (2268 total),
+    shuffled with seed=42. The eval dataset (100 fixed examples) consists of:
+      - First 50: configs at positions [num_examples:num_examples+50] of the same
+        shuffled [4,10] universe (always immediately after the training slice, so
+        guaranteed distinct from training for any value of num_examples).
+      - Second 50: configs from n ∈ [11, 15], shuffled with seed=42.
+
+    Args:
+        num_examples: Number of training examples (clamped to [100, 500]).
+    """
+    num_examples = max(100, min(num_examples, 500))
+
+    # --- Training dataset ---
+    # Enumerate the full [4,10] universe (2268 unique configs), shuffle with seed=42
+    train_universe = enumerate_universe((4, 10))
+    rng = np.random.default_rng(42)
+    order = rng.permutation(len(train_universe))
+    train_universe_shuffled = [train_universe[i] for i in order]
+
+    train_configs = train_universe_shuffled[:num_examples]
+    train_rows, train_max_steps = build_rows(train_configs)
+    dataset = Dataset.from_list(train_rows)
+
+    # --- Eval dataset ---
+    # Part 1: next 50 from the [4,10] shuffled universe (immediately after training slice)
+    eval_configs_part1 = train_universe_shuffled[num_examples:num_examples + 50]
+
+    # Part 2: 50 configs from [11,15] universe, shuffled with seed=42
+    eval_universe = enumerate_universe((11, 15))
+    eval_rng = np.random.default_rng(42)
+    eval_order = eval_rng.permutation(len(eval_universe))
+    eval_configs_part2 = [eval_universe[i] for i in eval_order[:50]]
+
+    eval_rows, eval_max_steps = build_rows(eval_configs_part1 + eval_configs_part2)
+    eval_dataset = Dataset.from_list(eval_rows)
 
     # Build parser (shared between env and rubric)
     parser = vf.XMLParser(fields=["reasoning", "action"], answer_field="action")
@@ -733,11 +767,14 @@ def load_environment(
         parser=parser,
     )
 
-    # max_turns = max possible steps + 1 (transition) + MAX_ANSWER_ATTEMPTS (answer retries)
+    # max_turns derived from the maximum max_steps across both datasets,
+    # so eval examples from [11,15] are fully accommodated
+    global_max_steps = max(train_max_steps, eval_max_steps)
     max_turns = global_max_steps + 1 + MAX_ANSWER_ATTEMPTS
 
     return BlicketEnv(
         dataset=dataset,
+        eval_dataset=eval_dataset,
         rubric=rubric,
         parser=parser,
         max_turns=max_turns,
