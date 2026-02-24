@@ -1,4 +1,3 @@
-# configs/lab/CausalExplorerEnv_0221_update.toml
 model = "allenai/OLMo-3-7B-Instruct"
 max_steps = 500
 batch_size = 120
