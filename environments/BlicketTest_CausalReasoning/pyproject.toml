@@ -1,7 +1,7 @@
 [project]
 name = "BlicketTest_CausalReasoning"
 description = "Multi-turn causal reasoning environment where an LLM explores a Blicket-detecting machine to identify which objects activate it under a hidden rule"
-tags = ["multi-turn", "causal-reasoning", "eval", "train"]
+tags = ["multi-turn", "reasoning", "eval", "train"]
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [

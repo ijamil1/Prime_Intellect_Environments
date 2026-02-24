@@ -3,7 +3,7 @@
 ### Overview
 - **Environment ID**: `BlicketTest_CausalReasoning`
 - **Short description**: Multi-turn causal reasoning environment based on the Blicket detector paradigm from developmental psychology. Tests an LLM's ability to design experiments, reason causally, and identify which objects are Blickets.
-- **Tags**: multi-turn, causal-reasoning, eval, train
+- **Tags**: multi-turn, reasoning, eval, train
 
 ### Reference
 Based on [Do LLMs Think Like Scientists? Causal Reasoning and Hypothesis Testing in LLMs](https://arxiv.org/pdf/2505.09614).
@@ -11,13 +11,13 @@ Based on [Do LLMs Think Like Scientists? Causal Reasoning and Hypothesis Testing
 ### Task
 - **Type**: multi-turn
 - **Parser**: XMLParser (fields: `reasoning`, `action`)
-- **Rubric overview**: Reward is an equal-weighted combination of five components (0.2 each): Blicket identification accuracy, step budget utilization, exploration efficiency, format compliance, and hypotheses eliminated.
+- **Rubric overview**: Reward is a weighted combination of five components: blicket identification (0.3), exploration efficiency (0.25), hypotheses eliminated (0.25), step budget utilization (0.1), and format compliance (0.1).
 
 The agent interacts with a simulated "Blicket-detecting machine" across two phases:
 1. **Exploration phase** — toggle objects on/off the machine one at a time, observe whether the machine activates, and exit when ready.
 2. **Answer phase** — declare which objects are Blickets. The agent has up to `MAX_ANSWER_ATTEMPTS` (3) retries to produce a correctly-formatted answer before the episode ends with no score.
 
-The machine activates according to a hidden rule (disjunctive OR or conjunctive AND over Blicket objects). The rule type is hidden from the agent.
+Each example's configuration — number of objects (sampled from [4, 10]), which objects are Blickets (at least 2, up to floor(n/2)), and rule type — is fixed at dataset generation time via rejection sampling to ensure uniqueness across examples. The dataset is built at runtime when `load_environment()` is called. The hidden rule is either **disjunctive** (machine activates if *any* Blicket is present) or **conjunctive** (machine activates only if *all* Blickets are present). Neither the rule type nor the Blicket assignments are revealed to the agent.
 
 ### Quickstart
 Run an evaluation with default settings:
@@ -32,22 +32,14 @@ Configure model and sampling:
 prime eval run BlicketTest_CausalReasoning \
   -m openai/gpt-4.1-mini \
   -n 50 -r 3 -t 4096 -T 0.7 \
-  -a '{"num_objects_range": [4, 10], "num_examples": 50}'
+  -a '{"num_examples": 50}'
 ```
 
 ### Environment Arguments
 
 | Arg | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
-| `num_objects_range` | tuple[int, int] | `(4, 10)` | Inclusive (min, max) range for number of objects per row. Must satisfy 4 <= lo <= hi <= 10 |
-| `num_examples` | int | `100` | Number of dataset rows to generate |
-| `seed` | int | `42` | RNG seed for reproducible dataset generation |
-
-Per-row configuration is sampled dynamically at dataset generation time:
-- **num_objects**: uniformly sampled from `num_objects_range`
-- **num_blickets**: uniformly sampled from [2, floor(num_objects/2)]
-- **rule_type**: randomly chosen as `"disjunctive"` or `"conjunctive"`
-- **max_num_steps**: computed as `ceil(1.5 * optimal_steps)` where `optimal_steps` comes from a greedy info-gain simulation
+| `num_examples` | int | `250` | Number of training examples (clamped to [100, 500]) |
 
 ### Architecture
 
@@ -93,7 +85,7 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 - `MAX_ANSWER_ATTEMPTS = 3` — maximum answer-phase retries before the episode ends with score 0.
 
 **Entry point:**
-- `load_environment(num_objects_range, num_examples, seed)` — validates parameter constraints, generates a diverse dataset with per-row config sampling (num_objects, num_blickets, rule_type, max_num_steps, blicket assignments), builds the parser/rubric, and returns a `BlicketEnv` instance.
+- `load_environment(num_examples)` — generates training and eval datasets via rejection sampling, builds the parser/rubric, and returns a `BlicketEnv` instance.
 
 **Environment class:**
 - `BlicketEnv(vf.MultiTurnEnv)`
@@ -120,7 +112,7 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 - `format_compliance()` — `parseable_action_count / exploration_and_answer_count` across all turns in both phases. Higher is better.
 - `hypotheses_eliminated()` — fraction of hypotheses eliminated relative to the optimal greedy info-gain agent. Higher means more informative exploration.
 
-### Metrics / Counters
+### Counters
 
 | Counter | Incremented when |
 |---|---|
@@ -132,7 +124,7 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 | `out_of_range_count` | Toggle with object ID outside [1, num_objects] |
 | `answer_attempt_count` | Each answer-phase `env_response` call |
 
-### Reward Table
+### Reward / Metrics
 
 | Component | Weight | Meaning |
 | --------- | ------ | ------- |
