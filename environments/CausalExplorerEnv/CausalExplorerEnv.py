@@ -112,11 +112,9 @@ def build_system_prompt(num_objects: int, max_num_steps: int) -> str:
 You are an intelligent, curious agent. You are playing a game where you are in a room with \
 {num_objects} different objects, and a machine. The objects are labeled as such: {object_list}. Some of these objects are blickets. \
 You can't tell which object is a blicket just by looking at it. \
-Blickets make the machine turn on following some hidden rule that may require all, some, or any of the blickets being on the machine.
-
-To be precise, a blicket is defined as an object whose state is not independent of the
-state of the machine (in other words, the object's state (on/off the machine) distribution and the machine's distribution have nonzero mutual
-information)
+Blickets make the machine turn on following some hidden rule. \
+This hidden rule may require all blickets to be on the machine for it turn on. \
+Or, the hidden rule may require any of the the blickets to be on the machine for it to turn on.
 
 Your goal is to determine exactly which objects are Blickets through exploration.
 You have a maximum of {max_num_steps} steps to conduct the exploration phase so you must act efficiently. You can also exit this phase early if you think you understand the relationship between the
@@ -163,7 +161,7 @@ def build_initial_message(num_objects: int) -> str:
     return f"""\
 You are in front of a Blicket-detecting machine with {num_objects} objects: {object_list}.
 Currently, no objects are on the machine. The machine is OFF. Your task is to determine which objects \
-are blickets.
+are blickets. There are at least 2 blickets.
 
 Begin"""
 
@@ -538,18 +536,20 @@ async def blicket_identification(state) -> float:
 async def step_budget_utilization(state) -> float:
     """Reward: step-budget utilization, conditioned on identification accuracy.
 
-    Behavior is split by whether the agent achieved perfect identification:
-    - Imperfect (final_score < 1.0): returns step_count / max_steps, rewarding
+    Behavior is split by whether the agent theoretically ruled out all hypotheses:
+    - Imperfect (htp_elim < 1.0): returns step_count / max_steps, rewarding
       more exploration (the agent is encouraged to use its full budget).
-    - Perfect (final_score == 1.0): returns 1.0 unconditionally, since the agent
-      fully solved the task regardless of how many steps it took.
+    - Perfect (hyp_elim == 1.0): returns 1.0 unconditionally, since the agent
+      in theory has all the information it needs to answer correctly
     """
-    # measures utilization as fraction of exploration steps used relative to max num steps (unless we were completely accurate in which case we return a non-differentiable? 1)
-    final_score = state.get("final_score", 0.0)
+    # measures utilization as fraction of exploration steps used relative to max num steps
+    optimal = state.get("optimal_hypotheses_eliminated", 1)
+    eliminated = float(sum(state.get("hypotheses_eliminated_per_step", [])))
+    hyp_elim = min(1.0, eliminated / optimal)
     step_count = state.get("step_count", 0)
     max_steps = state.get("max_num_steps", 1)
-    if final_score != 1.0:
-        #if we didn't correctly identify blickets, we want to encourage more exploration by rewarding more steps
+    if hyp_elim != 1.0:
+        #if we didn't eliminate all hypotheses, we want to encourage more exploration by rewarding more steps
         return step_count/max_steps
     return 1.0
 

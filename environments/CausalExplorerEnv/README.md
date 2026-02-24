@@ -115,7 +115,7 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 
 **Reward functions:**
 - `blicket_identification()` — reads `state["final_score"]`, set by `env_response` when a valid answer is submitted. Returns 0.0 if no valid answer was recorded.
-- `step_budget_utilization()` — when `final_score < 1.0`: returns `step_count / max_steps` to encourage more exploration; when `final_score == 1.0`: returns 1.0.
+- `step_budget_utilization()` — when `hypotheses_eliminated < 1.0`: returns `step_count / max_steps` to encourage more exploration; when `hypotheses_eliminated == 1.0`: returns 1.0.
 - `exploration_efficiency()` — `1 - (wasted / parseable_action_count)`, where waste = redundant actions + out-of-range object IDs + non-contiguous configuration revisits. Higher is better.
 - `format_compliance()` — `parseable_action_count / exploration_and_answer_count` across all turns in both phases. Higher is better.
 - `hypotheses_eliminated()` — fraction of hypotheses eliminated relative to the optimal greedy info-gain agent. Higher means more informative exploration.
@@ -137,7 +137,7 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 | Component | Weight | Meaning |
 | --------- | ------ | ------- |
 | `blicket_identification` | 0.3 | Per-object accuracy of Blicket predictions |
-| `step_budget_utilization` | 0.1 | `step_count / max_steps` when imperfect; `1.0` when perfect |
+| `step_budget_utilization` | 0.1 | `step_count / max_steps` when hypotheses_eliminated less than 1.0; `1.0` when perfect |
 | `exploration_efficiency` | 0.25 | `1 - (wasted / parseable)` — fraction of productive actions. Higher is better |
 | `format_compliance` | 0.1 | Parseable actions across all turns (both phases). Higher is better |
 | `hypotheses_eliminated` | 0.25 | Fraction of hypotheses eliminated vs. the optimal greedy info-gain agent. Higher is better |
