@@ -1,5 +1,5 @@
 [project]
-name = "CausalExplorerEnv"
+name = "BlicketTest_CausalReasoning"
 description = "Multi-turn causal reasoning environment where an LLM explores a Blicket-detecting machine to identify which objects activate it under a hidden rule"
 tags = ["multi-turn", "causal-reasoning", "eval", "train"]
 version = "0.1.0"
@@ -14,7 +14,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-include = ["CausalExplorerEnv.py", "pyproject.toml"]
+include = ["BlicketTest_CausalReasoning.py", "pyproject.toml"]
 
 [tool.verifiers.eval]
 num_examples = 20

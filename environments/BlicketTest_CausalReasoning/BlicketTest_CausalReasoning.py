@@ -730,7 +730,7 @@ def build_rows(configs: list[dict]) -> tuple[list[dict], int]:
 # --- Entry point ---
 
 def load_environment(num_examples: int = 250) -> vf.Environment:
-    """Load the CausalExplorerEnv (Blicket machine) environment.
+    """Load the BlicketTest_CausalReasoning (Blicket machine) environment.
 
     Training and eval datasets are fixed and fully distinct from each other.
     Both are generated via rejection sampling to ensure uniqueness:

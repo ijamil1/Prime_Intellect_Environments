@@ -1,7 +1,7 @@
-# CausalExplorerEnv
+# BlicketTest_CausalReasoning
 
 ### Overview
-- **Environment ID**: `CausalExplorerEnv`
+- **Environment ID**: `BlicketTest_CausalReasoning`
 - **Short description**: Multi-turn causal reasoning environment based on the Blicket detector paradigm from developmental psychology. Tests an LLM's ability to design experiments, reason causally, and identify which objects are Blickets.
 - **Tags**: multi-turn, causal-reasoning, eval, train
 
@@ -23,13 +23,13 @@ The machine activates according to a hidden rule (disjunctive OR or conjunctive 
 Run an evaluation with default settings:
 
 ```bash
-prime eval run CausalExplorerEnv
+prime eval run BlicketTest_CausalReasoning
 ```
 
 Configure model and sampling:
 
 ```bash
-prime eval run CausalExplorerEnv \
+prime eval run BlicketTest_CausalReasoning \
   -m openai/gpt-4.1-mini \
   -n 50 -r 3 -t 4096 -T 0.7 \
   -a '{"num_objects_range": [4, 10], "num_examples": 50}'
@@ -87,7 +87,7 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 <action>1: True, 2: False, 3: True, 4: False</action>
 ```
 
-### File Structure (`CausalExplorerEnv.py`)
+### File Structure (`BlicketTest_CausalReasoning.py`)
 
 **Module-level constants:**
 - `MAX_ANSWER_ATTEMPTS = 3` — maximum answer-phase retries before the episode ends with score 0.
