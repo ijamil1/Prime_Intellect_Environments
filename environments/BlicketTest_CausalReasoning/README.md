@@ -11,7 +11,7 @@ Based on [Do LLMs Think Like Scientists? Causal Reasoning and Hypothesis Testing
 ### Task
 - **Type**: multi-turn
 - **Parser**: XMLParser (fields: `reasoning`, `action`)
-- **Rubric overview**: Reward is a weighted combination of five components: blicket set Jaccard similarity (0.3), exploration efficiency (0.25), hypotheses eliminated (0.25), step budget utilization (0.1), and format compliance (0.1).
+- **Rubric overview**: Reward is fully concentrated on Blicket set Jaccard similarity (weight 1.0). Exploration quality metrics are tracked but do not affect the reward.
 
 The agent interacts with a simulated "Blicket-detecting machine" across two phases:
 1. **Exploration phase** — toggle objects on/off the machine one at a time, observe whether the machine activates, and exit when ready.
@@ -129,8 +129,8 @@ List only the IDs of objects believed to be Blickets inside curly braces. Use `<
 
 | Component | Weight | Meaning |
 | --------- | ------ | ------- |
-| `blicket_set_jaccard` | 0.3 | Jaccard similarity between predicted and gold Blicket sets |
-| `step_budget_utilization` | 0.1 | `step_count / max_steps` when hypotheses_eliminated less than 1.0; `1.0` when perfect |
-| `exploration_efficiency` | 0.25 | `1 - (wasted / parseable)` — fraction of productive actions. Higher is better |
-| `format_compliance` | 0.1 | Parseable actions across all turns (both phases). Higher is better |
-| `hypotheses_eliminated` | 0.25 | Fraction of hypotheses eliminated vs. the optimal greedy info-gain agent. Higher is better |
+| `blicket_set_jaccard` | 1.0 | Jaccard similarity between predicted and gold Blicket sets |
+| `step_budget_utilization` | 0.0 | tracked only |
+| `exploration_efficiency` | 0.0 | tracked only |
+| `format_compliance` | 0.0 | tracked only |
+| `hypotheses_eliminated` | 0.0 | tracked only |
