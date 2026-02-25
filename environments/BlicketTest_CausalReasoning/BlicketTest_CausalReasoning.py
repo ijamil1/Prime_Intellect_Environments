@@ -64,23 +64,26 @@ def parse_action(action_str: str) -> dict | None:
     return None
 
 
-def parse_predictions(answer_str: str, num_objects: int) -> dict | None:
-    """Parse answer-phase predictions like '1: True, 2: False, ...'.
+def parse_blicket_set(action_str: str, num_objects: int) -> set[int] | None:
+    """Parse answer-phase blicket set like '{1, 3}'.
 
-    Returns dict mapping 1-indexed object id to bool, or None on failure.
+    Returns a set of 1-indexed object IDs predicted to be Blickets,
+    or None if the format is invalid or any ID is out of range.
+    An empty set {} is valid (predicting no Blickets).
     """
-    predictions = {}
-    for part in answer_str.split(","):
-        part = part.strip()
-        m = re.match(r"^(\d+)\s*:\s*(true|false)$", part, re.IGNORECASE)
-        if not m:
-            return None
-        obj_id = int(m.group(1))
-        value = m.group(2).lower() == "true"
-        predictions[obj_id] = value
-    if set(predictions.keys()) != set(range(1, num_objects + 1)):
+    m = re.match(r"^\{(.*)\}$", action_str.strip(), re.DOTALL)
+    if not m:
         return None
-    return predictions
+    body = m.group(1).strip()
+    if body == "":
+        return set()
+    try:
+        ids = {int(x.strip()) for x in body.split(",")}
+    except ValueError:
+        return None
+    if not all(1 <= i <= num_objects for i in ids):
+        return None
+    return ids
 
 
 def parse_response(content: str, phase: str, num_objects: int) -> dict | None:
@@ -101,7 +104,7 @@ def parse_response(content: str, phase: str, num_objects: int) -> dict | None:
     if phase == "exploration":
         return parse_action(action_str)
     else:
-        return parse_predictions(action_str, num_objects)
+        return parse_blicket_set(action_str, num_objects)
 
 
 def build_system_prompt(num_objects: int, max_num_steps: int) -> str:
@@ -147,9 +150,10 @@ Where N is a single integer in ({object_list}). Do not include any text outside 
 
 During the answer phase, your response must be exactly:
     <reasoning>Your analysis of which objects are Blickets.</reasoning>
-    <action>1: True, 2: False, 3: True, ...</action>
+    <action>{{1, 3}}</action>
 
-You must include a True or False prediction for every object ({object_list}), separated by commas, in ascending order by object number. True means the object is a Blicket; False means it is not.
+List the IDs of every object you believe is a Blicket inside curly braces, separated by commas. \
+If you believe none of the objects are Blickets, use <action>{{}}</action>.
 
 STRATEGY: Plan your experiments carefully to gather maximum information efficiently since you are limited by the number of actions you can take. \
 Reason about what actions will give you the most information and what each observation tells you about the hidden rule and which objects might be Blickets."""
@@ -354,16 +358,16 @@ class BlicketEnv(vf.MultiTurnEnv):
             if predictions is None:
                 # Bad format — retry or exhaust budget
                 if state["answer_attempt_count"] < state["max_answer_attempts"]:
-                    object_list = ", ".join(str(i) for i in range(1, state["num_objects"] + 1))
-                    example = ", ".join(f"{i}: True" if i % 2 == 1 else f"{i}: False" for i in range(1, state["num_objects"] + 1))
+                    example = "{" + ", ".join(str(i) for i in range(1, state["num_objects"] + 1, 2)) + "}"
                     retry_msg = (
                         f"Could not parse your answer "
                         f"(attempt {state['answer_attempt_count']}/{state['max_answer_attempts']}). "
                         f"You have {state['max_answer_attempts'] - state['answer_attempt_count']} attempt(s) remaining.\n\n"
                         f"Your response must contain exactly one <reasoning> block and exactly one <action> block. "
                         f"The <action> block must NOT appear inside <reasoning>. "
-                        f"The action must list every object ({object_list}) with a True or False prediction, "
-                        f"comma-separated, in ascending order.\n\n"
+                        f"The <action> must contain the IDs of objects you believe are Blickets inside curly braces, "
+                        f"comma-separated (e.g. <action>{example}</action>). "
+                        f"Use <action>{{}}</action> if you believe no objects are Blickets.\n\n"
                         f"Example of correct format:\n"
                         f"<reasoning>Your analysis of which objects are Blickets.</reasoning>\n"
                         f"<action>{example}</action>"
@@ -379,20 +383,17 @@ class BlicketEnv(vf.MultiTurnEnv):
                     state["final_env_response"] = [{"role": "user", "content": final_msg}]
                     return state["final_env_response"]
 
-            # Valid predictions — score and exit
+            # Valid predictions — score with Jaccard similarity and exit
             state["parseable_action_count"] += 1
-            correct = sum(
-                1 for i in range(state["num_objects"])
-                if predictions.get(i + 1) == bool(state["blickets"][i])
-            )
-            score = correct / state["num_objects"]
+            gold_set = {i + 1 for i in range(state["num_objects"]) if state["blickets"][i] == 1}
+            union = len(predictions | gold_set)
+            score = len(predictions & gold_set) / union if union > 0 else 1.0
             state["final_score"] = score
-            blicket_list = [str(i + 1) for i in range(state["num_objects"]) if state["blickets"][i] == 1]
             final_msg = (
                 f"Your answer has been recorded. "
-                f"You correctly identified {correct}/{state['num_objects']} objects. "
-                f"Score: {score:.2f}\n"
-                f"The Blickets were: [{', '.join(blicket_list)}]\n"
+                f"You identified {sorted(predictions)} as Blickets. "
+                f"Score: {score:.2f} (Jaccard similarity)\n"
+                f"The Blickets were: {sorted(gold_set)}\n"
                 f"The rule was: {state['rule_type']}"
             )
             state["final_env_response"] = [{"role": "user", "content": final_msg}]
@@ -512,10 +513,11 @@ class BlicketEnv(vf.MultiTurnEnv):
             f"Exploration complete. You used {state['step_count']} of {state['max_num_steps']} steps.\n\n"
             f"Here is your full observation history:\n"
             f"{history_str}\n\n"
-            f"Now identify which objects are Blickets. For each object, respond True or False.\n"
+            f"Now identify which objects are Blickets. List the IDs of objects you believe are Blickets.\n"
             f"You MUST respond using XML tags. For example:\n"
             f"<reasoning>Your analysis of which objects are Blickets...</reasoning>\n"
-            f"<action>1: True, 2: False, ...</action>"
+            f"<action>{{1, 3}}</action>\n"
+            f"Use <action>{{}}</action> if you believe none of the objects are Blickets."
         )
         return [{"role": "user", "content": msg}]
 
@@ -523,8 +525,8 @@ class BlicketEnv(vf.MultiTurnEnv):
 # --- Reward and metric functions ---
 
 
-async def blicket_identification(state) -> float:
-    """Reward: per-object accuracy of Blicket identification.
+async def blicket_set_jaccard(state) -> float:
+    """Reward: Jaccard similarity between predicted and gold Blicket sets.
 
     Reads state["final_score"], which is set by env_response when the agent
     submits a correctly-formatted answer within the allowed retry budget.
@@ -763,7 +765,7 @@ def load_environment(num_examples: int = 250) -> vf.Environment:
 
     # Build rubric
     rubric = NormalizedRubric(
-        funcs=[blicket_identification, step_budget_utilization, exploration_efficiency, format_compliance, hypotheses_eliminated],
+        funcs=[blicket_set_jaccard, step_budget_utilization, exploration_efficiency, format_compliance, hypotheses_eliminated],
         weights=[0.3, 0.1, 0.25, 0.1, 0.25],
         parser=parser,
     )

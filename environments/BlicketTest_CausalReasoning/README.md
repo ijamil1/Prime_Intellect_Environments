@@ -11,7 +11,7 @@ Based on [Do LLMs Think Like Scientists? Causal Reasoning and Hypothesis Testing
 ### Task
 - **Type**: multi-turn
 - **Parser**: XMLParser (fields: `reasoning`, `action`)
-- **Rubric overview**: Reward is a weighted combination of five components: blicket identification (0.3), exploration efficiency (0.25), hypotheses eliminated (0.25), step budget utilization (0.1), and format compliance (0.1).
+- **Rubric overview**: Reward is a weighted combination of five components: blicket set Jaccard similarity (0.3), exploration efficiency (0.25), hypotheses eliminated (0.25), step budget utilization (0.1), and format compliance (0.1).
 
 The agent interacts with a simulated "Blicket-detecting machine" across two phases:
 1. **Exploration phase** — toggle objects on/off the machine one at a time, observe whether the machine activates, and exit when ready.
@@ -50,7 +50,7 @@ prime eval run BlicketTest_CausalReasoning \
 1. `setup_state()` reads per-row config from the dataset `info` field (blickets, rule type, step budget are pre-assigned at dataset generation). Initializes zeroed object states, the full hypothesis space (2^N blicket assignments × 2 rule types), and tracking counters.
 2. `env_response()` drives the game loop across both phases. All turns increment `exploration_and_answer_count`:
    - **Exploration**: calls `parse_response(..., "exploration", ...)` which strips reasoning blocks, requires exactly one `<action>` tag, and delegates to `parse_action`. Validates the action, toggles object state, computes machine activation, filters the hypothesis space against the observation, and returns a compact observation. Invalid and redundant actions still consume a step.
-   - **Answer**: calls `parse_response(..., "answer", ...)` which applies the same strict tag rules then delegates to `parse_predictions`. On successful parse, scores and terminates. On failure, sends a reformat message and loops up to `MAX_ANSWER_ATTEMPTS` (3) total attempts; if all exhausted, exits with score 0.
+   - **Answer**: calls `parse_response(..., "answer", ...)` which applies the same strict tag rules then delegates to `parse_blicket_set`. On successful parse, scores with Jaccard similarity and terminates. On failure, sends a reformat message and loops up to `MAX_ANSWER_ATTEMPTS` (3) total attempts; if all exhausted, exits with score 0.
 3. Termination is handled by the base class `has_final_env_response` stop condition.
 
 **Strict action parsing (`parse_response`):**
@@ -76,8 +76,9 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 **Answer format:**
 ```xml
 <reasoning>...</reasoning>
-<action>1: True, 2: False, 3: True, 4: False</action>
+<action>{1, 3}</action>
 ```
+List only the IDs of objects believed to be Blickets inside curly braces. Use `<action>{}</action>` if no objects are believed to be Blickets.
 
 ### File Structure (`BlicketTest_CausalReasoning.py`)
 
@@ -97,7 +98,7 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 - `compute_machine_state()` — vectorized OR/AND activation over Blicket positions.
 - `is_consistent()` — checks if a blicket assignment is consistent with an observed machine state.
 - `parse_action()` — regex parser for `put {id} on|off` and `exit`.
-- `parse_predictions()` — regex parser for `1: True, 2: False, ...` answer format.
+- `parse_blicket_set()` — regex parser for `{1, 3}` answer format; returns a `set[int]` of predicted Blicket IDs, or `None` on failure.
 - `parse_response()` — strict action extractor: strips reasoning blocks, requires exactly one `<action>` tag, then delegates to `parse_action` (exploration) or `parse_predictions` (answer). Returns `None` on any violation.
 - `build_system_prompt()` — constructs the system prompt with rules, action format, and strategy hint (does not reveal the rule type).
 - `build_initial_message()` — constructs the opening user message presenting the game.
@@ -106,7 +107,7 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 - `compute_optimal_steps()` — simulates a greedy info-gain-maximizing agent to determine the optimal number of exploration steps for a given configuration.
 
 **Reward functions:**
-- `blicket_identification()` — reads `state["final_score"]`, set by `env_response` when a valid answer is submitted. Returns 0.0 if no valid answer was recorded.
+- `blicket_set_jaccard()` — reads `state["final_score"]`, set by `env_response` as the Jaccard similarity between the predicted Blicket set and the gold set. Returns 0.0 if no valid answer was recorded.
 - `step_budget_utilization()` — when `hypotheses_eliminated < 1.0`: returns `step_count / max_steps` to encourage more exploration; when `hypotheses_eliminated == 1.0`: returns 1.0.
 - `exploration_efficiency()` — `1 - (wasted / parseable_action_count)`, where waste = redundant actions + out-of-range object IDs + non-contiguous configuration revisits. Higher is better.
 - `format_compliance()` — `parseable_action_count / exploration_and_answer_count` across all turns in both phases. Higher is better.
@@ -128,7 +129,7 @@ Valid actions: `put {id} on|off` (1-indexed) or `exit`.
 
 | Component | Weight | Meaning |
 | --------- | ------ | ------- |
-| `blicket_identification` | 0.3 | Per-object accuracy of Blicket predictions |
+| `blicket_set_jaccard` | 0.3 | Jaccard similarity between predicted and gold Blicket sets |
 | `step_budget_utilization` | 0.1 | `step_count / max_steps` when hypotheses_eliminated less than 1.0; `1.0` when perfect |
 | `exploration_efficiency` | 0.25 | `1 - (wasted / parseable)` — fraction of productive actions. Higher is better |
 | `format_compliance` | 0.1 | Parseable actions across all turns (both phases). Higher is better |
