@@ -766,7 +766,7 @@ def load_environment(num_examples: int = 250) -> vf.Environment:
     # Build rubric
     rubric = NormalizedRubric(
         funcs=[blicket_set_jaccard, step_budget_utilization, exploration_efficiency, format_compliance, hypotheses_eliminated],
-        weights=[0.3, 0.1, 0.25, 0.1, 0.25],
+        weights=[0.4, 0.1, 0.2, 0.1, 0.2],
         parser=parser,
     )
 
