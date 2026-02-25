@@ -165,7 +165,7 @@ def build_initial_message(num_objects: int) -> str:
     return f"""\
 You are in front of a Blicket-detecting machine with {num_objects} objects: {object_list}.
 Currently, no objects are on the machine. The machine is OFF. Your task is to determine which objects \
-are blickets. There are at least 2 blickets.
+are blickets.
 
 Begin"""
 
