@@ -1,5 +1,25 @@
 # Prime Intellect Environments
 
+---
+
+> ## ⚠️ THIS REPOSITORY HAS BEEN ARCHIVED
+>
+> **Date:** February 26, 2026 — 10:30 PM PST
+>
+> This monorepo has been split into three independent repositories, one per environment. **All active development has moved.** This repo is preserved as a historical record only.
+>
+> ### Active Repositories
+>
+> | Environment | New Repo |
+> |-------------|----------|
+> | BlicketTest_CausalReasoning | [github.com/ijamil1/BlicketTest_CausalReasoning](https://github.com/ijamil1/BlicketTest_CausalReasoning) |
+> | CausalReasoningEnv_1 | [github.com/ijamil1/CausalReasoningEnv_1](https://github.com/ijamil1/CausalReasoningEnv_1) |
+> | num_seq_env | [github.com/ijamil1/num_seq_env](https://github.com/ijamil1/num_seq_env) |
+>
+> **If you are looking for current code, go to one of the repos above.**
+
+---
+
 Creating RL environments for LLM training and evaluation, built with Prime Intellect's [verifiers](https://github.com/PrimeIntellect-ai/verifiers) framework. Workspace scaffolded via `prime lab setup`.
 
 ## Setup
