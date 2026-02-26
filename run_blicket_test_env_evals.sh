@@ -5,7 +5,7 @@ models=(
   "allenai/olmo-3-7b-instruct"
 )
 
-EVALS_DIR="./environments/CausalExplorerEnv/outputs/evals"
+EVALS_DIR="./environments/BlicketTest_CausalReasoning/outputs/evals"
 
 for model in "${models[@]}"; do
   short_name="${model#*/}"
@@ -13,7 +13,7 @@ for model in "${models[@]}"; do
     echo "Skipping $model (already has eval results for $short_name)"
   else
     echo "Running eval with model: $model"
-    prime eval run irfanjamil/CausalExplorerEnv -n 100 -r 3 -m "$model"
+    prime eval run irfanjamil/BlicketTest_CausalReasoning -n 100 -r 3 -m "$model"
   fi
   echo ""
 done

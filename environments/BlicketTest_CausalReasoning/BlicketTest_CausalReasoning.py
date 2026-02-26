@@ -121,7 +121,7 @@ Or, the hidden rule may require any of the the blickets to be on the machine for
 
 Your goal is to determine exactly which objects are Blickets through exploration.
 You have a maximum of {max_num_steps} steps to conduct the exploration phase so you must act efficiently. You can also exit this phase early if you think you understand the relationship between the
-objects and the machine. After the exploration phase is done, you will be asked which objects are blickets.
+objects and the machine. After the exploration phase is done, you will be asked to list the blickets.
 
 RULES:
 - In each action, you can place exactly one object onto the machine or remove exactly one object off the machine.
@@ -214,7 +214,7 @@ def compute_optimal_steps(
     rule_type: str,
     num_samples: int = 10,
     seed: int = 0,
-) -> float:
+) -> tuple[float, int, list[float]]:
     """Compute average exploration steps for a greedy info-gain-maximizing agent.
 
     Simulates an agent that at each step selects the single-object toggle which
@@ -226,6 +226,11 @@ def compute_optimal_steps(
 
     Outcomes are determined by the true *blickets* and *rule_type*.  Exploration
     stops when only one hypothesis remains.
+
+    Returns:
+        (avg_steps, total_hypotheses_to_eliminate, per_step_avg_eliminated)
+        where per_step_avg_eliminated[t] is the average hypotheses eliminated at
+        step t+1 across all trajectories that were still active at that step.
     """
     rng = np.random.default_rng(seed)
     run_seeds = rng.integers(0, 2**31, size=num_samples)
@@ -252,6 +257,8 @@ def compute_optimal_steps(
 
     max_iters = 2 ** (num_objects + 1)  # safety bound
     total_steps = 0
+    step_elim_sums: list[float] = []
+    step_elim_counts: list[int] = []
 
     for rs in run_seeds:
         run_rng = np.random.default_rng(int(rs))
@@ -259,6 +266,7 @@ def compute_optimal_steps(
         active = list(init_active)
         visited = {init_state}
         steps = 0
+        traj_elim: list[int] = []
 
         while steps < max_iters and len(active) > 1:
             # Compute balance for every possible toggle
@@ -283,17 +291,33 @@ def compute_optimal_steps(
             else:
                 action = int(run_rng.choice([i for i, _ in tied]))
 
+            prev_len = len(active)
             obj_states[action] = 1 - obj_states[action]
             visited.add(tuple(obj_states))
             actual = predict(obj_states, blickets, rule_type)
             active = [
                 (b, r) for b, r in active if predict(obj_states, b, r) == actual
             ]
+            traj_elim.append(prev_len - len(active))
             steps += 1
 
         total_steps += steps
 
-    return total_steps / num_samples, len(all_hypotheses) - 1
+        # Aggregate this trajectory's per-step eliminations
+        for t, elim in enumerate(traj_elim):
+            if t >= len(step_elim_sums):
+                step_elim_sums.append(0.0)
+                step_elim_counts.append(0)
+            step_elim_sums[t] += elim
+            step_elim_counts[t] += 1
+
+    per_step_avg = [
+        step_elim_sums[t] / step_elim_counts[t]
+        for t in range(len(step_elim_sums))
+        if step_elim_counts[t] > 0
+    ]
+
+    return total_steps / num_samples, len(all_hypotheses) - 1, per_step_avg
 
 
 # --- Environment class ---
@@ -328,6 +352,7 @@ class BlicketEnv(vf.MultiTurnEnv):
         state["answer_attempt_count"] = 0
         state["max_answer_attempts"] = MAX_ANSWER_ATTEMPTS
         state["optimal_hypotheses_eliminated"] = info["optimal_hypotheses_eliminated"]
+        state["optimal_hyp_eliminated_per_step"] = info["optimal_hyp_eliminated_per_step"]
 
         # Initialize hypothesis space: all (blicket_assignment, rule_type) pairs
         # 2^N blicket assignments × 2 rule types = 2^(N+1) hypotheses
@@ -535,27 +560,6 @@ async def blicket_set_jaccard(state) -> float:
     return state.get("final_score", 0.0)
 
 
-async def step_budget_utilization(state) -> float:
-    """Reward: step-budget utilization, conditioned on identification accuracy.
-
-    Behavior is split by whether the agent theoretically ruled out all hypotheses:
-    - Imperfect (htp_elim < 1.0): returns step_count / max_steps, rewarding
-      more exploration (the agent is encouraged to use its full budget).
-    - Perfect (hyp_elim == 1.0): returns 1.0 unconditionally, since the agent
-      in theory has all the information it needs to answer correctly
-    """
-    # measures utilization as fraction of exploration steps used relative to max num steps
-    optimal = state.get("optimal_hypotheses_eliminated", 1)
-    eliminated = float(sum(state.get("hypotheses_eliminated_per_step", [])))
-    hyp_elim = min(1.0, eliminated / optimal)
-    step_count = state.get("step_count", 0)
-    max_steps = state.get("max_num_steps", 1)
-    if hyp_elim != 1.0:
-        #if we didn't eliminate all hypotheses, we want to encourage more exploration by rewarding more steps
-        return step_count/max_steps
-    return 1.0
-
-
 async def exploration_efficiency(state) -> float:
     """Reward: fraction of parseable actions that were productive.
 
@@ -630,6 +634,41 @@ async def hypotheses_eliminated(state) -> float:
     return min(1.0, eliminated / optimal)
 
 
+async def per_step_efficiency(state) -> float:
+    """Reward: average ratio of agent's hypotheses eliminated per step vs optimal agent.
+
+    Iterates over the optimal agent's steps. For each step t:
+    - If optimal_avg[t] == 0, the step is excluded from the average.
+    - If the agent took step t, ratio = min(1.0, agent_elim[t] / optimal_avg[t]).
+    - If the agent did NOT take step t (exited early), ratio = 0.0, penalizing
+      the agent for exploring fewer steps than the optimal agent.
+
+    Returns the mean of included ratios, or 0.0 if no steps qualify.
+    """
+    agent_per_step = state.get("hypotheses_eliminated_per_step", [])
+    optimal_per_step = state.get("optimal_hyp_eliminated_per_step", [])
+
+    if not optimal_per_step:
+        return 0.0
+
+    ratios = []
+    for t, optimal_avg in enumerate(optimal_per_step):
+        if optimal_avg == 0:
+            # No information gain achievable at this step — exclude
+            continue
+        if t < len(agent_per_step):
+            ratio = min(1.0, agent_per_step[t] / optimal_avg)
+        else:
+            # Agent exited before this step — penalize with 0
+            ratio = 0.0
+        ratios.append(ratio)
+
+    if not ratios:
+        return 0.0
+
+    return sum(ratios) / len(ratios)
+
+
 # --- Normalized rubric ---
 
 
@@ -695,6 +734,68 @@ def sample_unique_configs(
     return configs
 
 
+def sample_balanced_configs(
+    num_objects_range: tuple[int, int],
+    n_conjunctive: int,
+    n_disjunctive: int,
+    exclude_keys: set[tuple],
+    seed: int,
+) -> list[dict]:
+    """Sample configs with exactly n_conjunctive conjunctive and n_disjunctive disjunctive rules.
+
+    Rejects configs whose (n_obj, rule, blicket_indices) key is in exclude_keys,
+    ensuring the result is fully disjoint from any excluded set. Configs within
+    the result are also guaranteed to be unique.
+
+    Args:
+        num_objects_range: Inclusive (lo, hi) range for number of objects.
+        n_conjunctive: Number of conjunctive configs to collect.
+        n_disjunctive: Number of disjunctive configs to collect.
+        exclude_keys: Set of (n_obj, rule, blicket_indices_tuple) keys to skip.
+        seed: RNG seed for reproducibility.
+
+    Returns:
+        A list of n_conjunctive + n_disjunctive configs, conjunctive first then disjunctive.
+    """
+    rng = np.random.default_rng(seed)
+    lo, hi = num_objects_range
+    seen: set[tuple] = set(exclude_keys)
+    conjunctive: list[dict] = []
+    disjunctive: list[dict] = []
+
+    while len(conjunctive) < n_conjunctive or len(disjunctive) < n_disjunctive:
+        n_obj = int(rng.integers(lo, hi + 1))
+        max_b = n_obj // 2
+        b = int(rng.integers(2, max_b + 1))
+        rule = str(rng.choice(["disjunctive", "conjunctive"]))
+        blicket_indices = tuple(sorted(
+            rng.choice(n_obj, size=b, replace=False).tolist()
+        ))
+        key = (n_obj, rule, blicket_indices)
+        if key in seen:
+            continue
+        if rule == "conjunctive" and len(conjunctive) >= n_conjunctive:
+            continue
+        if rule == "disjunctive" and len(disjunctive) >= n_disjunctive:
+            continue
+        seen.add(key)
+        blickets = [0] * n_obj
+        for idx in blicket_indices:
+            blickets[idx] = 1
+        cfg = {
+            "n_obj": n_obj,
+            "rule": rule,
+            "blickets": blickets,
+            "blicket_indices": list(blicket_indices),
+        }
+        if rule == "conjunctive":
+            conjunctive.append(cfg)
+        else:
+            disjunctive.append(cfg)
+
+    return conjunctive + disjunctive
+
+
 def build_rows(configs: list[dict]) -> tuple[list[dict], int]:
     """Build dataset rows from a list of configs, returning rows and global max_steps.
 
@@ -706,7 +807,7 @@ def build_rows(configs: list[dict]) -> tuple[list[dict], int]:
     for cfg in configs:
         seed_str = f"{cfg['n_obj']}_{cfg['rule']}_{cfg['blicket_indices']}"
         row_seed = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
-        optimal_steps, hyps_elim = compute_optimal_steps(
+        optimal_steps, hyps_elim, optimal_per_step = compute_optimal_steps(
             cfg["n_obj"], cfg["blickets"], cfg["rule"], seed=row_seed
         )
         max_steps = max(1, math.ceil(1.5 * optimal_steps))
@@ -724,6 +825,7 @@ def build_rows(configs: list[dict]) -> tuple[list[dict], int]:
                 "rule_type": cfg["rule"],
                 "blickets": cfg["blickets"],
                 "optimal_hypotheses_eliminated": hyps_elim,
+                "optimal_hyp_eliminated_per_step": optimal_per_step,
             }),
         })
     return rows, global_max_steps
@@ -734,30 +836,70 @@ def build_rows(configs: list[dict]) -> tuple[list[dict], int]:
 def load_environment(num_examples: int = 250) -> vf.Environment:
     """Load the BlicketTest_CausalReasoning (Blicket machine) environment.
 
-    Training and eval datasets are fixed and fully distinct from each other.
-    Both are generated via rejection sampling to ensure uniqueness:
-      - Training + eval part 1: (num_examples + 50) unique configs from n ∈ [4, 10],
-        sampled with seed=42. First num_examples → training; last 50 → eval part 1
-        (guaranteed non-overlapping for any valid num_examples).
-      - Eval part 2: 50 unique configs from n ∈ [11, 15], sampled with seed=42
-        (distinct from training by construction due to disjoint n range).
+    Training and eval datasets are fully disjoint and generated independently:
+      - Training: num_examples configs from n ∈ [4, 10], seed=42, ~2/3 conjunctive
+        and ~1/3 disjunctive to oversample the harder rule type.
+      - Eval (80 problems): 40 conjunctive + 40 disjunctive configs from n ∈ [4, 10],
+        seed=100, excluding all configs that could ever appear in training
+        (i.e., excluding the full 500-config training pool for any valid num_examples).
+      - Eval (20 problems): 10 conjunctive + 10 disjunctive configs from n ∈ [11, 15],
+        seed=100 (distinct from training by construction due to disjoint n range).
+      - Total eval: 100 problems with a guaranteed 50-50 conjunctive/disjunctive split.
 
     Args:
         num_examples: Number of training examples (clamped to [100, 500]).
     """
     num_examples = max(100, min(num_examples, 500))
 
-    # --- Training + eval part 1 (sampled together to guarantee no overlap) ---
-    pool = sample_unique_configs((4, 10), num_examples + 80, seed=42)
-    train_configs = pool[:num_examples]
-    eval_configs_part1 = pool[num_examples:]
+    # --- Training ---
+    # Generate the full possible training pool at max size (500) to use as the
+    # eval exclusion set, then slice out the actual training configs at the 2:1 ratio.
+    # Layout of full_train_pool: [0..MAX_N_CONJ-1] = conjunctive, [MAX_N_CONJ..] = disjunctive.
+    MAX_TRAIN = 500
+    MAX_N_CONJ = round(2 * MAX_TRAIN / 3)   # 333
+    MAX_N_DISJ = MAX_TRAIN - MAX_N_CONJ      # 167
 
+    full_train_pool = sample_balanced_configs(
+        num_objects_range=(4, 10),
+        n_conjunctive=MAX_N_CONJ,
+        n_disjunctive=MAX_N_DISJ,
+        exclude_keys=set(),
+        seed=42,
+    )
+
+    n_conj = round(2 * num_examples / 3)
+    n_disj = num_examples - n_conj
+    train_configs = full_train_pool[:n_conj] + full_train_pool[MAX_N_CONJ:MAX_N_CONJ + n_disj]
     train_rows, train_max_steps = build_rows(train_configs)
     dataset = Dataset.from_list(train_rows)
 
-    # --- Eval part 2: different n range, automatically distinct from training ---
-    eval_configs_part2 = sample_unique_configs((11, 15), 20, seed=42)
-    eval_rows, eval_max_steps = build_rows(eval_configs_part1 + eval_configs_part2)
+    # --- Eval ---
+    # Exclude every config in the full training pool so eval is disjoint from
+    # training regardless of which num_examples is used.
+    train_exclusion_keys = {
+        (c["n_obj"], c["rule"], tuple(c["blicket_indices"])) for c in full_train_pool
+    }
+
+    # 80 eval problems from n ∈ [4, 10]: 40 conjunctive + 40 disjunctive
+    eval_configs_4_10 = sample_balanced_configs(
+        num_objects_range=(4, 10),
+        n_conjunctive=40,
+        n_disjunctive=40,
+        exclude_keys=train_exclusion_keys,
+        seed=100,
+    )
+
+    # 20 eval problems from n ∈ [11, 15]: 10 conjunctive + 10 disjunctive
+    # (no training overlap possible due to disjoint n range)
+    eval_configs_11_15 = sample_balanced_configs(
+        num_objects_range=(11, 15),
+        n_conjunctive=10,
+        n_disjunctive=10,
+        exclude_keys=set(),
+        seed=100,
+    )
+
+    eval_rows, eval_max_steps = build_rows(eval_configs_4_10 + eval_configs_11_15)
     eval_dataset = Dataset.from_list(eval_rows)
 
     # Build parser (shared between env and rubric)
@@ -765,8 +907,8 @@ def load_environment(num_examples: int = 250) -> vf.Environment:
 
     # Build rubric
     rubric = NormalizedRubric(
-        funcs=[blicket_set_jaccard, step_budget_utilization, exploration_efficiency, format_compliance, hypotheses_eliminated],
-        weights=[0.4, 0.1, 0.2, 0.1, 0.2],
+        funcs=[blicket_set_jaccard, exploration_efficiency, format_compliance, hypotheses_eliminated, per_step_efficiency],
+        weights=[0.5, 0.1, 0.1, 0.0, 0.3],
         parser=parser,
     )
 
