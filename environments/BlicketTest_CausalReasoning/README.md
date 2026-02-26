@@ -128,7 +128,7 @@ List only the IDs of objects believed to be Blickets inside curly braces. Use `<
 - `exploration_efficiency()` — `1 - (wasted / parseable_action_count)`, where waste = redundant actions + out-of-range object IDs + non-contiguous configuration revisits. Higher is better.
 - `format_compliance()` — `parseable_action_count / exploration_and_answer_count` across all turns in both phases. Higher is better.
 - `hypotheses_eliminated()` — fraction of total hypotheses eliminated relative to the theoretical maximum (`2^(N+1) - 1`). Weight 0.0 (retained for metric logging only).
-- `per_step_efficiency()` — iterates over the optimal agent's steps. For each step `t` where `optimal_avg[t] > 0`: if the agent took that step, `ratio = min(1.0, agent_elim[t] / optimal_avg[t])`; if the agent exited before step `t`, `ratio = 0.0` (penalty for under-exploration). Returns the mean of all included ratios. Steps where `optimal_avg[t] == 0` are excluded from the average.
+- `per_step_efficiency()` — measures how closely the agent matches the information gain of a greedy oracle at each exploration step. The oracle is an information-maximizing agent simulated `num_samples` times: at every step it picks the single-object toggle that most evenly splits the remaining hypothesis space, and `optimal_avg[t]` is the average number of hypotheses it eliminates at step `t` across all simulation runs that were still active at that point (runs that terminated earlier are excluded from the average for that step, reflecting that the oracle had already solved the problem). The reward iterates over the oracle's steps: if the agent took step `t`, `ratio = min(1.0, agent_elim[t] / optimal_avg[t])`; if the agent exited before step `t`, `ratio = 0.0`, penalizing under-exploration. Steps where `optimal_avg[t] == 0` (no information gain possible even for the oracle) are excluded entirely. Returns the mean of included ratios.
 
 ### Counters
 
@@ -147,7 +147,7 @@ List only the IDs of objects believed to be Blickets inside curly braces. Use `<
 | Component | Weight | Meaning |
 | --------- | ------ | ------- |
 | `blicket_set_jaccard` | 0.5 | Jaccard similarity between predicted and gold Blicket sets |
-| `per_step_efficiency` | 0.3 | Average ratio of agent's hypotheses eliminated per step vs. the optimal greedy agent; penalizes under-exploration |
+| `per_step_efficiency` | 0.3 | Per-step ratio of agent's hypotheses eliminated vs. `optimal_avg[t]` (average hypotheses eliminated by the info-maximizing oracle at step `t`); penalizes under-exploration with ratio 0 for steps the agent never took |
 | `exploration_efficiency` | 0.1 | `1 - (wasted / parseable)` — fraction of productive actions |
 | `format_compliance` | 0.1 | Parseable actions across all turns (both phases) |
 | `hypotheses_eliminated` | 0.0 | Fraction of hypotheses eliminated vs. theoretical maximum (metric only) |
