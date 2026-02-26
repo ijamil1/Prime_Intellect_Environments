@@ -653,11 +653,12 @@ async def per_step_efficiency(state) -> float:
 
     ratios = []
     for t, optimal_avg in enumerate(optimal_per_step):
-        if optimal_avg == 0:
-            # No information gain achievable at this step — exclude
-            continue
         if t < len(agent_per_step):
-            ratio = min(1.0, agent_per_step[t] / optimal_avg)
+            if optimal_avg == 0:
+                # No information gain achievable at this step — exclude
+                ratio = 1
+            else:
+                ratio = min(1.0, agent_per_step[t] / optimal_avg)
         else:
             # Agent exited before this step — penalize with 0
             ratio = 0.0

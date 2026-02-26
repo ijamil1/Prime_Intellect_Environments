@@ -1,7 +1,7 @@
 model = "allenai/OLMo-3-7B-Instruct"
-max_steps = 300
-batch_size = 240
-rollouts_per_example = 12
+max_steps = 350
+batch_size = 256
+rollouts_per_example = 16
 learning_rate = 1.5e-5
 
 [buffer]
@@ -15,7 +15,7 @@ id = "irfanjamil/BlicketTest_CausalReasoning@0.1.0"
 args = { num_examples = 250 }
 
 [eval]
-interval = 300                    # Evaluate every 500 steps
+interval = 350                    # Evaluate every 350 steps
 
 [[eval.env]]
 id = "irfanjamil/BlicketTest_CausalReasoning@0.1.0"

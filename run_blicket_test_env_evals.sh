@@ -1,8 +1,8 @@
 #!/bin/bash
 
 models=(
-  "allenai/olmo-3.1-32b-instruct"
-  "allenai/olmo-3-7b-instruct"
+  "anthropic/claude-3.5-haiku"
+  "qwen/qwen3-30b-a3b-instruct-2507"
 )
 
 EVALS_DIR="./environments/BlicketTest_CausalReasoning/outputs/evals"
