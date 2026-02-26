@@ -11,13 +11,13 @@ online_difficulty_filtering = true
 max_tokens = 7000
 
 [[env]]
-id = "irfanjamil/BlicketTest_CausalReasoning@0.1.0"
+id = "irfanjamil/BlicketTest_CausalReasoning@0.1.1"
 args = { num_examples = 250 }
 
 [eval]
 interval = 350                    # Evaluate every 350 steps
 
 [[eval.env]]
-id = "irfanjamil/BlicketTest_CausalReasoning@0.1.0"
+id = "irfanjamil/BlicketTest_CausalReasoning@0.1.1"
 num_examples = 100
 rollouts_per_example = 3
